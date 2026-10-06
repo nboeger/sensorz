@@ -26,13 +26,20 @@ func TestPanelCornersClose(t *testing.T) {
 		}
 		plain := stripANSI(line)
 		if i == 0 || i == len(lines)-1 {
-			// The horizontal edges: a vertical at each end, rules between.
-			if !strings.HasPrefix(plain, string(vRule)) || !strings.HasSuffix(plain, string(vRule)) {
+			// The horizontal edges open and close with a corner glyph, and
+			// that is what makes the box look sharp: the corner's two arms
+			// meet inside one cell, so there is no join anywhere on the
+			// perimeter to see.
+			left, right := string(cornerTopL), string(cornerTopR)
+			if i == len(lines)-1 {
+				left, right = string(cornerBotL), string(cornerBotR)
+			}
+			if !strings.HasPrefix(plain, left) || !strings.HasSuffix(plain, right) {
 				t.Errorf("edge %d does not close at both ends: %q", i, plain)
 			}
 			// The title is the only thing on an edge that is not a rule.
-			if rest := strings.Trim(plain, string(hRule)+string(vRule)); strings.TrimSpace(rest) != "" &&
-				strings.TrimSpace(rest) != "CPU" {
+			rest := strings.Trim(plain, string(hRule)+left+right)
+			if strings.TrimSpace(rest) != "" && strings.TrimSpace(rest) != "CPU" {
 				t.Errorf("edge %d is not made of rules and its title: %q", i, plain)
 			}
 			continue
@@ -53,19 +60,27 @@ func TestPanelTitleFitsTheTopRule(t *testing.T) {
 		if !strings.Contains(plain, title) && title != "A very long panel title" {
 			t.Errorf("title %q is missing from the top rule: %q", title, plain)
 		}
-		if !strings.HasPrefix(plain, string(vRule)) || !strings.HasSuffix(plain, string(vRule)) {
+		if !strings.HasPrefix(plain, string(cornerTopL)) || !strings.HasSuffix(plain, string(cornerTopR)) {
 			t.Errorf("title %q ate a corner: %q", title, plain)
 		}
 	}
 }
 
-// A panel too narrow for its title still has to close.
+// A panel too narrow for its title still has to close: the title is dropped,
+// not the corners.
 func TestPanelTooNarrowForTitle(t *testing.T) {
 	th := DefaultTheme()
 	p := NewPanel("CPU", 6, 4, th, th.PanelCPU)
-	for i, line := range strings.Split(p.Render([]string{"x"}), "\n") {
+	lines := strings.Split(p.Render([]string{"x"}), "\n")
+	want := [][2]string{
+		{string(cornerTopL), string(cornerTopR)},
+		{string(vRule), string(vRule)},
+		{string(vRule), string(vRule)},
+		{string(cornerBotL), string(cornerBotR)},
+	}
+	for i, line := range lines {
 		plain := stripANSI(line)
-		if !strings.HasPrefix(plain, string(vRule)) || !strings.HasSuffix(plain, string(vRule)) {
+		if !strings.HasPrefix(plain, want[i][0]) || !strings.HasSuffix(plain, want[i][1]) {
 			t.Errorf("line %d does not close: %q", i, plain)
 		}
 	}

@@ -7,39 +7,44 @@ import (
 	"github.com/mattn/go-runewidth"
 )
 
-// panelBorder draws a panel the way btop does: solid continuous rules in the
-// horizontal and a single line down each side, with no corner glyphs at all.
+// The glyphs a panel is drawn from: one horizontal rule, one vertical, and the
+// four corners that join them.
 //
-// The rules are drawn with the box-drawing line characters rather than ASCII
-// dashes. A row of '-' is not a line, it is a row of dashes with a gap at every
-// cell boundary, which is what makes ASCII borders look broken next to the
-// solid rules btop draws. The corners are left out deliberately: they are the
-// part of the block a font is most likely to be missing, and a box with no
-// corners is exactly as readable as one with them.
-// The two rules a panel is drawn from. They are the only glyphs the chrome
-// uses: one horizontal, one vertical, so a box cannot be broken by a terminal
-// that is missing a whole block of them.
+// The corners are the whole trick behind a box that looks sharp. A horizontal
+// rule and a vertical rule meet only in a glyph that is drawn to do exactly
+// that - the corner sits in one cell with its horizontal arm running right and
+// its vertical arm running down, so there is no join to see and nothing to
+// break. Faking a corner with a vertical rule in the corner cell cannot look
+// sharp: the rule sits in the middle of its cell and the horizontal one sits in
+// the middle of its own, so the two arms meet at an angle with a gap on either
+// side of the join.
 const (
-	hRule = '\u2500' // ─
-	vRule = '\u2502' // │
+	hRule      = '\u2500' // ─
+	vRule      = '\u2502' // │
+	cornerTopL = '\u250c' // ┌
+	cornerTopR = '\u2510' // ┐
+	cornerBotL = '\u2514' // └
+	cornerBotR = '\u2518' // ┘
 )
 
+// panelBorder draws a panel the way btop does: a horizontal rule across the top
+// and bottom, a vertical rule down each side, and square corners joining them.
 var panelBorder = lipgloss.Border{
 	Top:         string(hRule),
 	Bottom:      string(hRule),
 	Left:        string(vRule),
 	Right:       string(vRule),
-	TopLeft:     "",
-	TopRight:    "",
-	BottomLeft:  "",
-	BottomRight: "",
+	TopLeft:     string(cornerTopL),
+	TopRight:    string(cornerTopR),
+	BottomLeft:  string(cornerBotL),
+	BottomRight: string(cornerBotR),
 }
 
 // Panel is a bordered box with a title, the btop layout style.
 //
 // Each box carries its own colour, the way btop's do: green for the compute
-// boxes, blue and purple for the rest. That is what makes a dense dashboard
-// legible, because the eye finds a box by its hue before it reads the title.
+// boxes and purple for the rest. That is what makes a dense dashboard legible,
+// because the eye finds a box by its hue before it reads the title.
 type Panel struct {
 	Title  string
 	Width  int
@@ -111,20 +116,19 @@ func (p *Panel) Render(content []string) string {
 	return p.injectTitle(rendered)
 }
 
-// injectTitle draws the panel's top and bottom rules.
+// injectTitle writes the panel title into the top rule and redraws the bottom
+// rule to match the body width.
 //
-// The corners are the vertical rule, not a separate corner glyph: a box drawn
-// as a top rule, a body of verticals and a bottom rule has a break at each
-// corner, because the vertical run starts one row below the horizontal one and
-// never meets it. Carrying the vertical into the corner cells closes the box,
-// and it does it with the same two characters the rest of the panel uses.
+// lipgloss pads the top edge to the width of the widest line, which is the body,
+// but it measures its own border strings, and a rule drawn by one library and
+// a title written by another is a join waiting to be a cell short. Both edges
+// are rebuilt here from the body's own width so the box is exactly as wide as
+// the content it contains.
 func (p *Panel) injectTitle(rendered string) string {
 	lines := strings.Split(rendered, "\n")
 	if len(lines) < 2 {
 		return rendered
 	}
-
-	// The width comes from the body, which is the part that has to line up.
 	total := lipgloss.Width(lines[1])
 	if total < 4 {
 		return rendered
@@ -136,16 +140,20 @@ func (p *Panel) injectTitle(rendered string) string {
 	return strings.Join(lines, "\n")
 }
 
-// ruleLine draws one horizontal edge of the panel, with the title written into
-// the top one and the vertical rule closing both ends.
+// ruleLine draws one horizontal edge of the panel between its two corners,
+// with the title written into the top one.
 func (p *Panel) ruleLine(title string, total int) string {
+	topLeft, topRight := string(cornerTopL), string(cornerTopR)
+	if title == "" {
+		topLeft, topRight = string(cornerBotL), string(cornerBotR)
+	}
 	if total < 4 {
-		return strings.Repeat(string(vRule), total)
+		return topLeft + topRight
 	}
 	inner := total - 2
 
 	var b strings.Builder
-	b.WriteRune(vRule)
+	b.WriteString(topLeft)
 
 	switch title {
 	case "":
@@ -158,7 +166,7 @@ func (p *Panel) ruleLine(title string, total int) string {
 		if left < 1 {
 			left = 1
 		}
-		if rest := inner - (left - 1) - (tw + 2); rest > 0 {
+		if rest := inner - (left - 1) - (tw + 2); rest >= 1 {
 			b.WriteString(strings.Repeat(string(hRule), left-1))
 			b.WriteString(" " + t + " ")
 			b.WriteString(strings.Repeat(string(hRule), rest))
@@ -167,7 +175,7 @@ func (p *Panel) ruleLine(title string, total int) string {
 		}
 	}
 
-	b.WriteRune(vRule)
+	b.WriteString(topRight)
 	return b.String()
 }
 
