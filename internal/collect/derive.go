@@ -16,6 +16,9 @@ const (
 	MetricGPUTemp = "gpu.temp.avg"
 	// MetricFanAvg is the mean RPM across every fan sensor on the machine.
 	MetricFanAvg = "fan.avg"
+	// MetricDiskTemp is the mean temperature across every drive that reports
+	// one.
+	MetricDiskTemp = "disk.temp.avg"
 )
 
 // derive appends the average series to a snapshot.
@@ -30,7 +33,7 @@ const (
 // reading, so a machine with no fan sensor gets no fan average rather than a
 // graph pinned to zero.
 func derive(snap *model.Snapshot) {
-	for _, mt := range []model.Metric{cpuTempAvg(snap), gpuTempAvg(snap), fanAvg(snap)} {
+	for _, mt := range []model.Metric{cpuTempAvg(snap), gpuTempAvg(snap), fanAvg(snap), diskTempAvg(snap)} {
 		if mt.ID == "" {
 			continue
 		}
@@ -177,6 +180,62 @@ func fanAvg(snap *model.Snapshot) model.Metric {
 		Value:    sum / float64(n),
 		Min:      0,
 		Max:      maxRPM,
+		Hint:     sensorCountNote(n),
+	}
+}
+
+// diskTempAvg averages the composite temperature of every drive that reports
+// one.
+//
+// A machine with two or three NVMe drives otherwise gets a graph and a number
+// per drive, which is the same problem the CPU average solves: a panel per
+// sensor rather than one figure per class of sensor. The individual drives stay
+// visible underneath it.
+func diskTempAvg(snap *model.Snapshot) model.Metric {
+	var (
+		sum   float64
+		n     int
+		crit  float64
+		label = "Drive"
+	)
+	for _, mt := range snap.Metrics {
+		// The composite reading is the drive's headline temperature. The
+		// secondary sensors - an NVMe's NAND hot spot, for one - are listed
+		// under it rather than averaged into it.
+		if mt.Category != model.CategoryDisk || mt.Kind != model.KindTemperature {
+			continue
+		}
+		if mt.Group != "SSD Temp" && mt.Group != "HDD Temp" {
+			continue
+		}
+		sum += mt.Value
+		n++
+		if mt.Crit > 0 && (crit == 0 || mt.Crit < crit) {
+			// The first drive to throttle sets the limit for all of them.
+			crit = mt.Crit
+		}
+	}
+	if n == 0 {
+		return model.Metric{}
+	}
+	if n > 1 {
+		label = "Drives ×" + itoa(n)
+	}
+	warn, limit := 55.0, 70.0
+	if crit > 0 {
+		warn, limit = crit*0.8, crit
+	}
+	return model.Metric{
+		ID:       MetricDiskTemp,
+		Label:    label,
+		Group:    "Average",
+		Category: model.CategoryDisk,
+		Kind:     model.KindTemperature,
+		Value:    sum / float64(n),
+		Min:      20,
+		Max:      model.Clamp(limit*1.1, 60, 120),
+		Warn:     warn,
+		Crit:     limit,
 		Hint:     sensorCountNote(n),
 	}
 }

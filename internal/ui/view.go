@@ -237,6 +237,11 @@ func (m *Model) board(w, h int) string {
 	return p.Render(m.boardContent(p.Inner()))
 }
 
+// minFigureWidth is the narrowest a panel can be and still hold the level bar
+// and the figure side by side, with a little air. Below it the figure takes
+// the whole width and the bar is dropped.
+const minFigureWidth = 26
+
 // minGraphRows is the fewest rows a history graph is worth drawing in. Below
 // three the plot says nothing, so the panel shows the number and the
 // thresholds instead.
@@ -269,6 +274,12 @@ func (m *Model) headline(w int, mt model.Metric, caption string, budget int) (ro
 		barGap = 2
 	)
 
+	// The figure is the reading and the bar is the context, so on a narrow
+	// panel the bar goes rather than the figure, and on a very narrow one the
+	// unit goes rather than the digits. A figure cut off by the panel edge is
+	// the one thing the panel must never draw.
+	showBar := figureW+barW+barGap <= w
+
 	rows = []string{center(m.th.Style(m.th.Label).Render(truncate(mt.Label, w)), w)}
 	// The air above the figure is the first thing to go: on a short panel the
 	// graph is worth more than the spacing.
@@ -283,7 +294,10 @@ func (m *Model) headline(w int, mt model.Metric, caption string, budget int) (ro
 	}
 	extra := clampInt(budget-len(rows)-blockH, 0, 4)
 	barH := blockH + extra
-	bar := m.levelBar(barW, barH, mt)
+	var bar []string
+	if showBar {
+		bar = m.levelBar(barW, barH, mt)
+	}
 
 	for i := 0; i < barH; i++ {
 		right := ""
@@ -293,7 +307,11 @@ func (m *Model) headline(w int, mt model.Metric, caption string, budget int) (ro
 		case hasCaption && i == len(figure):
 			right = m.th.Style(m.th.Dim).Render(truncate(caption, w))
 		}
-		rows = append(rows, center(bar[i]+strings.Repeat(" ", barGap)+right, w))
+		left := ""
+		if showBar {
+			left = bar[i] + strings.Repeat(" ", barGap)
+		}
+		rows = append(rows, center(left+right, w))
 	}
 	if extra == 0 && budget-len(rows) >= 1 {
 		rows = append(rows, "")
@@ -362,40 +380,49 @@ func (m *Model) columnGraph(w, h int, mt model.Metric) []string {
 // the bottom. The graph does not also go under the figure: that would squeeze
 // the figure into a corner and leave the graph a quarter of the panel it is the
 // reason for.
-func (m *Model) panelBody(innerW, innerH int, mt model.Metric, caption string, below []string) []string {
+// below is a function rather than a slice of finished rows, because the rows
+// under the figure are laid out in whatever width is left after the graph has
+// taken its share, and a row built for the full panel would have its value
+// truncated off the end.
+func (m *Model) panelBody(innerW, innerH int, mt model.Metric, caption string, below func(w int) []string) []string {
 	if innerW < 8 || innerH < 2 {
 		return nil
 	}
 
 	const gap = 2
+
 	// A bit over a third of the panel: enough for a readable plot, and it
-	// leaves the figure room to stay a figure.
+	// leaves the figure room to stay a figure. The figure needs room of its own,
+	// and if the plot cannot be drawn at all - a panel too short to hold three
+	// rows of it - the figure gets the whole width rather than sharing it with a
+	// column of blanks.
 	graphW := clampInt(innerW*38/100, 10, 46)
-	rightW := innerW - graphW - gap
-	if rightW < 24 {
-		// Too narrow for both. The figure wins: it is the reading.
-		graphW, rightW = 0, innerW
+	if innerW-graphW-gap < minFigureWidth || m.columnGraph(graphW, innerH-1, mt) == nil {
+		graphW = 0
 	}
+	rightW := innerW - graphW - gap
 
 	rows := make([]string, innerH)
 	for i := range rows {
 		rows[i] = strings.Repeat(" ", graphW+gap)
 	}
 
-	if graphW > 0 {
-		for i, line := range m.columnGraph(graphW, innerH-1, mt) {
-			rows[i] = padLine(line, graphW) + strings.Repeat(" ", gap)
-		}
+	for i, line := range m.columnGraph(graphW, innerH-1, mt) {
+		rows[i] = padLine(line, graphW) + strings.Repeat(" ", gap)
 	}
 
-	right, _ := m.headline(rightW, mt, caption, innerH-1-len(below))
+	var extra []string
+	if below != nil {
+		extra = below(rightW)
+	}
+	right, _ := m.headline(rightW, mt, caption, innerH-1-len(extra))
 	for i, line := range right {
 		if i >= len(rows) {
 			break
 		}
 		rows[i] += padLine(line, rightW)
 	}
-	for i, line := range below {
+	for i, line := range extra {
 		idx := len(right) + i
 		if idx >= len(rows)-1 {
 			break
@@ -419,7 +446,14 @@ func (m *Model) footer(w int, mt model.Metric) string {
 			m.th.Style(m.th.Warn).Render(fmt.Sprintf("warn %.1f\u00b0C", mt.Warn)),
 			m.th.Style(m.th.Bad).Render(fmt.Sprintf("crit %.1f\u00b0C", mt.Crit)))
 	}
-	return padLine(strings.Join(parts, m.th.Style(m.th.Dim).Render("   ")), w)
+
+	// Whole parts or nothing: a footer cut mid-number tells the reader less
+	// than a shorter footer does, so the least important part goes first.
+	sep := m.th.Style(m.th.Dim).Render("   ")
+	for len(parts) > 1 && lipgloss.Width(strings.Join(parts, sep)) > w {
+		parts = parts[:len(parts)-1]
+	}
+	return padLine(strings.Join(parts, sep), w)
 }
 
 // budgetTemps keeps the package sensor plus the hottest of the rest, capped at n.
@@ -515,11 +549,13 @@ func (m *Model) gpuContent(innerW, innerH int) []string {
 
 	// One row per card, under the figure. Every card stays visible: a card that
 	// silently dropped out of the panel looks exactly like a hardware fault.
-	below := make([]string, 0, len(devs))
-	for _, d := range devs {
-		below = append(below, m.gpuLine(d, innerW))
-	}
-	return m.panelBody(innerW, innerH, mt, "temp", below)
+	return m.panelBody(innerW, innerH, mt, "temp", func(w int) []string {
+		out := make([]string, 0, len(devs))
+		for _, d := range devs {
+			out = append(out, m.gpuLine(d, w))
+		}
+		return out
+	})
 }
 
 // gpuLine renders one GPU as a single row: name, temperature, and whichever
@@ -528,7 +564,10 @@ func (m *Model) gpuLine(d model.Device, innerW int) string {
 	color := m.th.Color(d.Temperature, 80, 90)
 	temp := m.th.Style(color).Bold(true).Render(model.FormatValue(model.KindTemperature, d.Temperature))
 
-	var extras []string
+	var (
+		extras   []string
+		tempText = model.FormatValue(model.KindTemperature, d.Temperature)
+	)
 	for _, t := range d.ExtraTemps {
 		if t.Label == "" || t.Value != t.Value {
 			continue
@@ -541,8 +580,15 @@ func (m *Model) gpuLine(d model.Device, innerW int) string {
 			Render(model.FormatValueCompact(model.KindUtilization, d.FanPercent)+"%"))
 	}
 
-	label := m.th.Style(m.th.Label).Render(truncate("GPU"+itoaStr(d.Index)+" "+shortDeviceName(d), max(0, innerW-16)))
-	extrasText := strings.Join(extras, m.th.Style(m.th.Dim).Render(" · "))
+	// The card's own name and temperature first; the auxiliary readings are
+	// dropped one at a time rather than cut in half by the panel edge.
+	name := "GPU" + itoaStr(d.Index) + " " + shortDeviceName(d)
+	sep := m.th.Style(m.th.Dim).Render(" · ")
+	for lipgloss.Width(name)+lipgloss.Width(tempText)+lipgloss.Width(strings.Join(extras, sep))+4 > innerW && len(extras) > 0 {
+		extras = extras[:len(extras)-1]
+	}
+	label := m.th.Style(m.th.Label).Render(truncate(name, max(0, innerW-16)))
+	extrasText := strings.Join(extras, sep)
 	row := label + " " + temp
 	if pad := innerW - lipgloss.Width(row) - lipgloss.Width(extrasText); pad > 1 {
 		row += strings.Repeat(" ", pad)
@@ -570,79 +616,68 @@ func (m *Model) fanContent(innerW, innerH int) []string {
 	return m.panelBody(innerW, innerH, mt, "fan", nil)
 }
 
-// driveContent draws one temperature graph per drive, with the drive's
-// secondary sensors in the hint line beneath it.
+// driveContent draws the drives panel: the average temperature of every drive
+// that reports one, its history down the left, and a line per drive underneath
+// carrying the numbers the average hides.
+//
+// The drives used to have a graph each. That is a graph around every
+// temperature, which is the thing the dashboard stopped doing: one graph per
+// class of sensor, with the individual readings as figures beside it.
 func (m *Model) driveContent(innerW, innerH int) []string {
 	if innerW < 8 {
 		return nil
 	}
-	ms := m.MetricsFor(model.CategoryDisk)
-	if len(ms) == 0 {
+	mt, ok := m.Metric(collect.MetricDiskTemp)
+	if !ok {
 		return []string{m.th.Style(m.th.Dim).Render("no drive temperature sensors")}
 	}
 
-	// Split each drive's series into the headline composite and the extras,
-	// which is what tells an NVMe about to throttle from one that is merely
-	// warm.
-	type drive struct {
-		temp   *model.Metric
-		extras []model.Metric
-	}
-	byDev := map[string]*drive{}
+	byDrive := map[string]model.Metric{}
+	extras := map[string][]model.Metric{}
 	var order []string
-	for i := range ms {
-		mt := ms[i]
-		d, ok := byDev[mt.Label]
-		if !ok {
-			d = &drive{}
-			byDev[mt.Label] = d
-			order = append(order, mt.Label)
+	for _, m2 := range m.MetricsFor(model.CategoryDisk) {
+		if m2.Group == "SSD Temp" || m2.Group == "HDD Temp" {
+			if _, seen := byDrive[m2.Label]; !seen {
+				order = append(order, m2.Label)
+			}
+			byDrive[m2.Label] = m2
+			continue
 		}
-		switch mt.Group {
-		case "SSD Temp", "HDD Temp":
-			cp := mt
-			d.temp = &cp
-		default:
-			d.extras = append(d.extras, mt)
-		}
+		extras[m2.Label] = append(extras[m2.Label], m2)
 	}
 	sort.Strings(order)
 
-	const graphH = 3
-	// The extras are the first thing to go when the panel is short, because the
-	// composite graph above them already carries the headline figure.
-	showExtras := innerH >= len(order)*(graphH+1)
-
-	var rows []string
-	for _, name := range order {
-		d := byDev[name]
-		if d.temp == nil {
-			continue
-		}
-		rows = append(rows, RenderGraph(m.Values(d.temp.ID), GraphOptions{
-			Width: innerW, Height: graphH,
-			Min: d.temp.Min, Max: d.temp.Max,
-			Fill:    true,
-			Columns: true,
-			Dots:    true,
-			Warn:    d.temp.Warn,
-			Crit:    d.temp.Crit,
-			Label:   name,
-			// WithUnits: a drive's rows are labelled by the kernel's own
-			// channel names, which say nothing about the quantity, so the
-			// number has to say it is a temperature.
-			Value: readout(*d.temp, true),
-		}, m.th)...)
-		if showExtras && len(d.extras) > 0 {
-			parts := make([]string, 0, len(d.extras))
-			for _, e := range d.extras {
-				parts = append(parts, m.th.Style(m.th.Ramp(e.Value, e.Warn, e.Crit)).
-					Render(e.Group+" "+readout(e, true)))
+	return m.panelBody(innerW, innerH, mt, "temp", func(w int) []string {
+		out := make([]string, 0, len(order))
+		for _, name := range order {
+			// The composite reading always fits; the secondary sensors are added
+			// only while they do, because a value cut in half by the panel edge
+			// says less than no value at all.
+			sep := m.th.Style(m.th.Dim).Render(" · ")
+			parts := []string{readout(byDrive[name], true)}
+			for _, e := range extras[name] {
+				candidate := strings.Join(append(append([]string{}, parts...), readout(e, true)), sep)
+				if lipgloss.Width(name)+lipgloss.Width(candidate)+2 > w {
+					break
+				}
+				parts = append(parts, readout(e, true))
 			}
-			rows = append(rows, m.th.Style(m.th.Dim).Render(truncate(strings.Join(parts, "  "), innerW)))
+			out = append(out, m.inlineRow(w, name, strings.Join(parts, sep)))
 		}
+		return out
+	})
+}
+
+// inlineRow renders one "name  value" line for the rows under a panel's figure.
+func (m *Model) inlineRow(w int, name, value string) string {
+	n := truncate(name, max(0, w-lipgloss.Width(value)-2))
+	l := m.th.Style(m.th.Label).Render(n)
+	v := m.th.Style(m.th.Value).Render(value)
+	pad := w - lipgloss.Width(l) - lipgloss.Width(v)
+	if pad < 1 {
+		return truncateStyled(l+" "+v, w)
 	}
-	return rows
+	return l + strings.Repeat(" ", pad) + v
 }
 
 // boardContent draws the motherboard's own temperature sensors, grouped by the
@@ -666,17 +701,17 @@ func (m *Model) boardContent(innerW, innerH int) []string {
 	}
 	sort.Strings(chips)
 
+	// Readings only, no graphs: these are the sensors that belong to no other
+	// panel, there are often a dozen of them, and they are labelled by the
+	// board's wiring rather than by anything the dashboard can graph. A number
+	// with its unit says what it is; a graph around it would only be the same
+	// shape repeated a dozen times.
 	var rows []string
 	for _, chip := range chips {
 		rows = append(rows, m.chipHeading(innerW, chip, len(byChip[chip])))
-		// WithUnits: these readings are labelled by the board's own wiring
-		// ("SYSTIN", "AUXTIN2"), which says nothing about what they measure, so
-		// the number has to say what it is. A bare "36" on a row labelled
-		// AUXTIN2 is not a temperature the reader can identify.
-		grid, shown := m.tempGrid(innerW, innerH-len(rows), byChip[chip], true)
-		rows = append(rows, grid...)
-		if r := m.moreRow(len(byChip[chip])-shown, innerW); r != "" {
-			rows = append(rows, r)
+		rows = append(rows, m.tempList(innerW, innerH-len(rows), byChip[chip], true)...)
+		if more := m.moreRow(len(byChip[chip])-len(byChip[chip]), innerW); more != "" {
+			rows = append(rows, more)
 		}
 	}
 	return rows
