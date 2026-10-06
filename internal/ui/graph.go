@@ -41,10 +41,6 @@ type GraphOptions struct {
 	// that is what the data is: a temperature holds, and the shape of a series
 	// that holds is a staircase, not a slope.
 	Columns bool
-	// Dots renders a lit cell as a dot matrix rather than as the exact set of
-	// dots the plot put there, so a filled region keeps its texture instead of
-	// becoming a solid block.
-	Dots bool
 }
 
 // RenderGraph draws one series into exactly Height rows of Width cells.
@@ -90,16 +86,6 @@ func RenderGraph(values []float64, o GraphOptions, th Theme) []string {
 	return out
 }
 
-// dotPattern is the braille pattern a filled cell is drawn with: two rows of
-// two dots per cell.
-//
-// A cell whose eight dots are all lit is a solid block, and a column chart of
-// solid blocks is a rectangle: the shape is there but the texture is gone, and a
-// series that holds looks like a wall rather than a plateau. Intersecting the
-// plot's dots with this pattern keeps the shape and gives every filled cell the
-// same texture.
-const dotPattern = 0x33
-
 // paintRow colours one rendered row of braille.
 //
 // The colour of a dot is the colour of the reading behind it, ramped from pale
@@ -122,11 +108,7 @@ func paintRow(grid *Grid, y int, row string, o GraphOptions, th Theme, lineColor
 		if v := columnValue(grid, x, y, o, len(runes)); !math.IsNaN(v) {
 			color = th.Ramp(v, o.Warn, o.Crit)
 		}
-		cell := runes[x]
-		if o.Dots {
-			cell = brailleRunes[grid.cells[y*w+x]&dotPattern]
-		}
-		b.WriteString(lipgloss.NewStyle().Foreground(color).Render(string(cell)))
+		b.WriteString(lipgloss.NewStyle().Foreground(color).Render(string(runes[x])))
 	}
 	return b.String()
 }

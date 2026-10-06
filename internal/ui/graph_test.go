@@ -34,7 +34,7 @@ func TestColumnGraphFillsFromTheBaseline(t *testing.T) {
 	}
 	rows := RenderGraph(values, GraphOptions{
 		Width: 10, Height: 10, Min: 0, Max: 100,
-		Fill: true, Columns: true, Dots: true,
+		Fill: true, Columns: true,
 	}, th)
 	if len(rows) != 10 {
 		t.Fatalf("graph is %d rows, want 10", len(rows))
@@ -59,9 +59,12 @@ func TestColumnGraphFillsFromTheBaseline(t *testing.T) {
 	}
 }
 
-// A cell whose eight dots are all lit is a solid block, and a column chart of
-// solid blocks is a rectangle. Every filled cell keeps the dot texture instead.
-func TestColumnGraphCellsAreDots(t *testing.T) {
+// Density is the whole look of the plot. A filled cell lights all eight of its
+// braille dots, which a terminal draws as a field of eight small dots rather
+// than as a solid block: the gaps between the dots are what make the shape
+// readable as a shape. Thinning the pattern inside a cell would turn the plot
+// into a sparse scatter that no longer reads as a filled region.
+func TestColumnGraphFillsEveryDot(t *testing.T) {
 	th := DefaultTheme()
 	values := make([]float64, 20)
 	for i := range values {
@@ -69,27 +72,27 @@ func TestColumnGraphCellsAreDots(t *testing.T) {
 	}
 	rows := RenderGraph(values, GraphOptions{
 		Width: 8, Height: 6, Min: 0, Max: 100,
-		Fill: true, Columns: true, Dots: true,
+		Fill: true, Columns: true,
 	}, th)
 
-	dots := 0
+	full := 0
 	for _, row := range rows {
 		for _, r := range stripANSI(row) {
-			if r == brailleBase {
-				continue // the blank background cell
+			switch r {
+			case brailleBase:
+			case brailleBase + 0xFF:
+				full++
+			default:
+				// Only the top edge of a column may be partial.
+				if full > 0 {
+					t.Fatalf("a cell inside the fill is partial (%U); the fill must be dense", r)
+				}
 			}
-			if r == brailleBase+0xFF {
-				t.Fatalf("a filled cell is solid (%q); the plot must stay a texture", r)
-			}
-			dots++
 		}
 	}
-	if dots == 0 {
-		t.Fatal("the graph drew nothing")
-	}
-	// A dot pattern lights half of each cell's dots, so a filled graph is
-	// about half lit cells; anything much above that is a solid block again.
-	if dots > 8*6*8 {
-		t.Errorf("%d dots lit, too dense to be a dot texture", dots)
+	// A 90% series over six rows fills about five of them, and eight cells is
+	// the width.
+	if full < 8*4 {
+		t.Errorf("%d fully lit cells, want the fill to be dense across the width", full)
 	}
 }

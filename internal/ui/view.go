@@ -338,7 +338,6 @@ func (m *Model) columnGraph(w, h int, mt model.Metric) []string {
 		Min: mt.Min, Max: mt.Max,
 		Fill:    true,
 		Columns: true,
-		Dots:    true,
 		Warn:    mt.Warn,
 		Crit:    mt.Crit,
 	}, m.th)
@@ -363,12 +362,14 @@ func (m *Model) panelBody(innerW, innerH int, mt model.Metric, caption string, b
 
 	const gap = 2
 
-	// A bit over a third of the panel: enough for a readable plot, and it
-	// leaves the figure room to stay a figure. The figure needs room of its own,
-	// and if the plot cannot be drawn at all - a panel too short to hold three
-	// rows of it - the figure gets the whole width rather than sharing it with a
-	// column of blanks.
-	graphW := clampInt(innerW*38/100, 10, 46)
+	// Half the panel, which is as much as the figure can spare now that it has
+	// the level bar's old width to itself: more columns is more samples on
+	// screen, and a plot that shows forty-eight samples says more about the
+	// last ten minutes than one that shows thirty. The figure still needs room
+	// of its own, and if the plot cannot be drawn at all - a panel too short to
+	// hold three rows of it - the figure gets the whole width rather than
+	// sharing it with a column of blanks.
+	graphW := clampInt(innerW*50/100, 12, 60)
 	if innerW-graphW-gap < minFigureWidth || m.columnGraph(graphW, innerH-1, mt) == nil {
 		graphW = 0
 	}
@@ -706,112 +707,6 @@ func (m *Model) boardTemps() []model.Metric {
 		out = budgetTemps(out, 12)
 	}
 	return out
-}
-
-// tempGrid renders temperature graphs in a multi-column grid, one graph and its
-// number per cell.
-//
-// The columns are built as full stacks of rows and then joined row by row, so
-// every cell keeps the same height however long its label is and the grid stays
-// aligned from frame to frame. Each cell is a complete graph - label, number and
-// braille plot - because a grid of numbers with no plot would hide exactly the
-// thing a temperature monitor is for.
-func (m *Model) tempGrid(w, availRows int, temps []model.Metric, withUnits bool) ([]string, int) {
-	if len(temps) == 0 || w < 12 {
-		return nil, 0
-	}
-	// One graph plus the blank line under it. Each cell is deliberately
-	// generous: braille puts two dots across and four down per cell, so a wider
-	// cell is twice the resolution of the same graph drawn smaller, which is
-	// what turns "a plain line" into a readable trend.
-	const cellW = 34
-	cellH := 7
-
-	// A graph needs all of its rows or it is not a graph: half a plot is a
-	// rectangle of empty cells, which looks like a broken sensor rather than a
-	// small one. So the cell shrinks whole or not at all, and when even the
-	// small cell will not fit the panel falls back to plain label-and-number
-	// rows, which is honest about what there is room for.
-	if availRows > 0 {
-		switch {
-		case availRows >= 7:
-			cellH = 7
-		case availRows >= 5:
-			cellH = 5
-		default:
-			return m.tempList(w, availRows, temps, withUnits), len(temps)
-		}
-	}
-
-	cols := min(max(1, w/cellW), len(temps))
-	perCol := (len(temps) + cols - 1) / cols
-	if availRows > 0 {
-		// Only lay out the rows that will actually be visible, so a long list
-		// of sensors does not spend the panel on the ones cut off.
-		if maxRows := max(1, availRows/cellH); perCol > maxRows {
-			perCol = maxRows
-			temps = temps[:min(len(temps), perCol*cols)]
-			cols = min(cols, len(temps))
-			perCol = (len(temps) + cols - 1) / cols
-		}
-	}
-	if perCol == 0 {
-		return nil, 0
-	}
-
-	// Build each column as one flat stack of rows, then pad the columns to a
-	// common height when joining them.
-	cols0 := make([][]string, cols)
-	for c := 0; c < cols; c++ {
-		var block []string
-		for i := 0; i < perCol; i++ {
-			idx := c*perCol + i
-			if idx >= len(temps) {
-				break
-			}
-			mt := temps[idx]
-			block = append(block, RenderGraph(m.Values(mt.ID), GraphOptions{
-				Width: min(cellW, w), Height: cellH - 1,
-				Min: mt.Min, Max: mt.Max,
-				Fill:    true,
-				Columns: true,
-				Dots:    true,
-				Warn:    mt.Warn,
-				Crit:    mt.Crit,
-				Label:   mt.Label,
-				Value:   readout(mt, withUnits),
-			}, m.th)...)
-			block = append(block, "") // one blank row between graphs
-		}
-		cols0[c] = block
-	}
-
-	height := 0
-	for _, block := range cols0 {
-		height = max(height, len(block))
-	}
-
-	out := make([]string, 0, height)
-	shown := 0
-	for r := 0; r < height; r++ {
-		parts := make([]string, 0, cols*2)
-		for c := 0; c < cols; c++ {
-			block := cols0[c]
-			if r < len(block) {
-				parts = append(parts, padLine(block[r], min(cellW, w)))
-				if (r+1)%cellH == 0 {
-					shown++
-				}
-			} else {
-				parts = append(parts, strings.Repeat(" ", min(cellW, w)))
-			}
-			if c < cols-1 {
-				parts = append(parts, " ")
-			}
-		}
-		out = append(out, strings.Join(parts, ""))
-	}
-	return out, min(shown, len(temps))
 }
 
 // tempList renders temperatures as label-and-number rows, for panels too short
