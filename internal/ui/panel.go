@@ -7,6 +7,23 @@ import (
 	"github.com/mattn/go-runewidth"
 )
 
+// asciiBorder draws a panel with plain ASCII lines.
+//
+// Not box drawing: those are a separate Unicode block, and a terminal or font
+// without them draws every horizontal and vertical line as a bracket, which
+// turns a row of panels into a row of "[[[". ASCII always renders, and it is
+// the same shape btop's panels have once the terminal has sorted the glyphs out.
+var asciiBorder = lipgloss.Border{
+	Top:         "-",
+	Bottom:      "-",
+	Left:        "|",
+	Right:       "|",
+	TopLeft:     "",
+	TopRight:    "",
+	BottomLeft:  "",
+	BottomRight: "",
+}
+
 // Panel is a bordered box with a title, the btop layout style.
 //
 // Each box carries its own colour, the way btop's do: green for the compute
@@ -49,11 +66,9 @@ func (p *Panel) Inner() (w, h int) {
 
 // Render draws the panel around the given content.
 //
-// The corners are square, not rounded: rounded corners are a glyph further up
-// the box-drawing block, and a terminal or font without them falls back to
-// something that renders as a row of brackets. Square corners are also what
-// btop uses, so a dashboard with half a dozen panels stays a grid of boxes
-// rather than a grid of brackets.
+// The borders are plain ASCII lines with no corner glyphs, so a panel reads as
+// a line with a name in it and two vertical rules, the way a wireframe looks and
+// the way btop's panels read once the terminal draws the corners.
 //
 // The content is padded rather than truncated when it is too short, so a panel
 // keeps its declared size and the grid of panels stays aligned; content that
@@ -64,7 +79,7 @@ func (p *Panel) Render(content []string) string {
 
 	border := p.borderColor()
 	box := lipgloss.NewStyle().
-		Border(lipgloss.NormalBorder()).
+		Border(asciiBorder).
 		BorderForeground(border).
 		Width(innerW).
 		Height(innerH)
@@ -98,38 +113,53 @@ func (p *Panel) injectTitle(rendered string) string {
 		return rendered
 	}
 
-	top := []rune(lines[0])
-	if len(top) < 3 {
+	// The panels have no corner glyphs, so the top line is nothing but the
+	// horizontal rule, and the title is written into the middle of it. The
+	// width comes from the body, which is the line that has to line up: lipgloss
+	// renders an empty corner as a space, so the rule it produced is a cell
+	// short and cannot be trusted as the measure.
+	total := lipgloss.Width(lines[0])
+	if len(lines) > 1 {
+		total = lipgloss.Width(lines[1])
+	}
+	if total < 5 {
 		return rendered
 	}
-	// The top border is "╭" followed by innerW dashes followed by "╮".
-	dashes := len(top) - 2
+	dashes := total
+	const fill = '-'
 
 	title := truncate(p.Title, dashes-2)
 	if title == "" {
 		return rendered
 	}
+	tw := runewidth.StringWidth(title)
 
-	start := 1 + (dashes-runewidth.StringWidth(title)-2)/2
+	// Centre the title, leaving at least one dash on either side.
+	start := 1 + (dashes-tw-2)/2
 	if start < 1 {
 		start = 1
 	}
-	if start+runewidth.StringWidth(title)+2 > len(top)-1 {
-		start = len(top) - 2 - runewidth.StringWidth(title)
-		if start < 1 {
-			start = 1
-		}
+	if start+tw+2 > dashes {
+		start = dashes - tw - 2
+	}
+	if start < 1 {
+		start = 1
 	}
 
 	var b strings.Builder
-	b.WriteRune(top[0])
-	b.WriteString(strings.Repeat(string(top[1]), start-1))
+	b.WriteString(strings.Repeat(string(fill), start-1))
 	b.WriteString(" " + title + " ")
-	b.WriteString(strings.Repeat(string(top[1]), len(top)-1-(start+runewidth.StringWidth(title)+2)))
-	b.WriteRune(top[len(top)-1])
+	b.WriteString(strings.Repeat(string(fill), dashes-(start-1)-(tw+2)))
 
 	color := p.borderColor()
 	lines[0] = p.theme.Style(color).Render(b.String())
+
+	// The bottom rule is written out in full as well: lipgloss renders an empty
+	// corner as a space, which would leave the box closed with a blank at each
+	// end instead of a line.
+	if len(lines) > 1 {
+		lines[len(lines)-1] = p.theme.Style(color).Render(strings.Repeat(string(fill), dashes))
+	}
 	return strings.Join(lines, "\n")
 }
 
@@ -201,21 +231,45 @@ func truncateStyled(s string, w int) string {
 	return b.String()
 }
 
-// Column lays panels out side by side, which is how btop arranges CPU, GPU and
-// memory at the top of the screen.
+// Column lays panels out side by side, which is how btop arranges the CPU and
+// GPU boxes at the top of the screen.
+//
+// Panels are joined line by line, so a spacer passed as a single blank string
+// is expanded to the height of the tallest panel here. Without that, the gap
+// between two boxes only appears on the first line and the rest of the boxes
+// sit flush against each other.
 func Column(panels ...string) string {
 	if len(panels) == 0 {
 		return ""
 	}
-	split := strings.Split(panels[0], "\n")
-	for _, p := range panels[1:] {
-		for i, line := range strings.Split(p, "\n") {
-			if i < len(split) {
-				split[i] = lipgloss.JoinHorizontal(lipgloss.Top, split[i], line)
-			}
-		}
+
+	split := make([][]string, 0, len(panels))
+	rows := 0
+	for _, p := range panels {
+		lines := strings.Split(p, "\n")
+		rows = max(rows, len(lines))
+		split = append(split, lines)
 	}
-	return strings.Join(split, "\n")
+
+	out := make([]string, rows)
+	for i := 0; i < rows; i++ {
+		row := make([]string, 0, len(split))
+		for _, lines := range split {
+			if i < len(lines) {
+				row = append(row, lines[i])
+				continue
+			}
+			// A panel that is shorter than the tallest one contributes blanks
+			// of its own width, so a spacer stays one cell wide.
+			w := 0
+			if len(lines) > 0 {
+				w = lipgloss.Width(lines[0])
+			}
+			row = append(row, strings.Repeat(" ", w))
+		}
+		out[i] = lipgloss.JoinHorizontal(lipgloss.Top, row...)
+	}
+	return strings.Join(out, "\n")
 }
 
 // Rows stacks panels vertically.

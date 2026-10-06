@@ -30,6 +30,9 @@ type GraphOptions struct {
 	// Autoscale grows the ceiling to fit the data when the metric has no
 	// meaningful fixed maximum, such as fan RPM on a quiet machine.
 	Autoscale bool
+	// Thick draws the trace as a band of dot rows rather than a single row, so
+	// a wide graph still reads as a line at a glance.
+	Thick int
 }
 
 // RenderGraph draws one series into exactly Height rows of Width cells.
@@ -51,7 +54,7 @@ func RenderGraph(values []float64, o GraphOptions, th Theme) []string {
 	}
 
 	grid := NewGrid(o.Width, o.Height)
-	Plot(grid, values, lo, hi, PlotStyle{Fill: o.Fill, DrawLine: true})
+	Plot(grid, values, lo, hi, PlotStyle{Fill: o.Fill, DrawLine: true, Thick: o.Thick})
 
 	labelColor := th.Ramp(latestOf(values), o.Warn, o.Crit)
 	labelStyle := lipgloss.NewStyle().Foreground(labelColor).Bold(true)

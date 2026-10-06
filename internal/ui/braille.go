@@ -125,6 +125,11 @@ type PlotStyle struct {
 	Fill bool
 	// DrawLine connects consecutive points with dots.
 	DrawLine bool
+	// Thick lights a band of dots below the curve instead of a single row of
+	// them. A one dot trace is very fine at a glance, especially across the
+	// width of a panel; two or three dot rows read as a solid line that still
+	// shows the shape.
+	Thick int
 }
 
 // Plot draws a series into the grid.
@@ -159,8 +164,18 @@ func Plot(g *Grid, values []float64, min, max float64, style PlotStyle) {
 
 		if style.DrawLine && prevX >= 0 {
 			drawSegment(g, prevX, prevY, x, y)
+			for t := 1; t <= style.Thick; t++ {
+				drawSegment(g, prevX, prevY+t, x, y+t)
+			}
 		}
 		g.Set(x, y)
+
+		// The thick band hangs below the curve, so the trace keeps its
+		// position within the graph rather than growing upwards into the
+		// reading above it.
+		for t := 1; t <= style.Thick; t++ {
+			g.Set(x, y+t)
+		}
 
 		if style.Fill {
 			fillColumn(g, x, y)

@@ -153,7 +153,7 @@ func (m *Model) header(w int) string {
 		if n < 1 {
 			return " "
 		}
-		return rule.Render(strings.Repeat("─", n))
+		return rule.Render(strings.Repeat("-", n))
 	}
 
 	fixed := lipgloss.Width(left) + lipgloss.Width(state) + lipgloss.Width(clock) + 6
@@ -163,11 +163,11 @@ func (m *Model) header(w int) string {
 		spaces = max(3, w-lipgloss.Width(left)-lipgloss.Width(clock)-3)
 	}
 	head := " " + left + " " + fill(spaces/2) + " " + clock + " " + fill(spaces-spaces/2) + state + " "
-	head = truncateStyled(head, w)
+	head = padLine(truncateStyled(head, w), w)
 
 	// The rule under the bar is the same thin line btop draws below its header,
 	// and the panels start immediately below it.
-	return head + "\n" + rule.Render(strings.Repeat("─", w))
+	return head + "\n" + rule.Render(strings.Repeat("-", w))
 }
 
 // topRow renders the CPU and GPU temperature panels side by side. A machine
@@ -236,48 +236,168 @@ func (m *Model) board(w, h int) string {
 	return p.Render(m.boardContent(p.Inner()))
 }
 
-// cpuContent draws the CPU panel: one headline graph of the average across
-// every CPU temperature sensor, then the individual sensors beneath it.
+// cpuContent draws the CPU panel: the average across every CPU temperature
+// sensor as a large figure, its history as a wide graph beneath it, and the
+// thresholds it is judged against along the bottom.
 //
-// The average is the headline because a 32-core machine has 33 temperature
-// channels and the user wants one number that says "how hot is my CPU". The
-// detail graphs are still there, for the moment when the average is not enough
-// - finding the one core running 15 degrees hotter than its neighbours.
+// The big number is the headline because a 32-core machine has 33 temperature
+// channels and the user wants one figure that says "how hot is my CPU". The
+// detail graphs below it are still there, for the moment when the average is
+// not enough - finding the one core running 15 degrees hotter than its
+// neighbours.
 func (m *Model) cpuContent(innerW, innerH int) []string {
 	if innerW < 8 {
 		return nil
 	}
-	var rows []string
-
 	mt, ok := m.Metric(collect.MetricCPUTemp)
 	if !ok {
 		return []string{m.th.Style(m.th.Dim).Render("no CPU temperature sensors exposed")}
 	}
 
-	// The headline graph takes a third of the panel, so a tall panel gets a
-	// tall graph rather than a tall gap: braille gives four dot rows per cell,
-	// so every extra row is four more lines of history visible at once.
-	h := clampInt(innerH/3, 5, 10)
-	rows = append(rows, RenderGraph(m.Values(mt.ID), GraphOptions{
-		Width: innerW, Height: h,
-		Min: mt.Min, Max: mt.Max,
-		Fill:  false,
-		Warn:  mt.Warn,
-		Crit:  mt.Crit,
-		Label: mt.Label,
-		Value: model.FormatValueCompact(mt.Kind, mt.Value),
-	}, m.th)...)
-	rows = append(rows, m.th.Style(m.th.Dim).Render(truncate(m.thresholdLine(mt), innerW)))
+	head, figureW := m.headline(innerW, mt, "temp")
 
-	detail := m.cpuDetail()
-	if len(detail) > 0 {
-		grid, shown := m.tempGrid(innerW, innerH-len(rows), detail)
-		rows = append(rows, grid...)
-		if more := m.moreRow(len(detail)-shown, innerW); more != "" {
-			rows = append(rows, more)
-		}
+	// The space beside the big figure is not dead space: it is where the
+	// individual sensors go. A 32 core machine has 33 channels, and the moment
+	// the average is not enough is the moment one core is running hotter than
+	// its neighbours.
+	if side := m.sidePanel(innerW-figureW-3, len(head), m.cpuDetail()); len(side) > 0 {
+		head = joinSide(head, side, figureW)
+	}
+
+	rows := head
+	rows = append(rows, m.historyGraph(innerW, innerH-len(rows)-1, mt)...)
+	rows = append(rows, m.footer(innerW, mt))
+	return rows
+}
+
+// sidePanel renders the sensors that fit beside the big figure, as one label
+// and number per row.
+func (m *Model) sidePanel(w, h int, temps []model.Metric) []string {
+	if len(temps) == 0 || w < 16 {
+		return nil
+	}
+	// The first row of the block is blank above the label, so the list starts
+	// one row down to line up with it.
+	rows := []string{""}
+	rows = append(rows, m.tempList(w, h-2, temps)...)
+	// One row is spent on the count, so the reader knows the list is a sample.
+	rows = append(rows, m.moreRow(len(temps), w))
+	for len(rows) < h {
+		rows = append(rows, "")
 	}
 	return rows
+}
+
+// joinSide places side beside the headline block, row by row.
+//
+// headW is the width of the figure rather than the width of the block: the
+// headline rows are padded to the panel so their colour spans it, and using
+// that padded width here would push the side list clean off the right edge.
+func joinSide(head, side []string, headW int) []string {
+	out := make([]string, len(head))
+	for i := range head {
+		left := padLine(head[i], headW)
+		if i < len(side) {
+			left += "  " + side[i]
+		}
+		out[i] = left
+	}
+	return out
+}
+
+// headline renders the panel's one important number: what is being measured,
+// the value as a large block figure, and its unit underneath.
+//
+// The figure is drawn as a grid of blocks rather than as text because a terminal
+// has one font size: the only way to make a number bigger is to draw it. The
+// unit goes below rather than beside, so the digits line up on the left edge
+// whatever the unit is.
+func (m *Model) headline(w int, mt model.Metric, caption string) (rows []string, figureW int) {
+	color := m.th.Ramp(mt.Value, mt.Warn, mt.Crit)
+	style := m.th.Style(color).Bold(true)
+
+	rows = []string{
+		"",
+		m.th.Style(m.th.Label).Render(truncate(mt.Label, w)),
+		"",
+	}
+
+	// Two cells per pixel: wide enough to read as a display figure, short
+	// enough that a five row figure plus a unit still leaves room for a graph.
+	number := bigText(mt)
+	scale := 2
+	if BigNumberWidth(number, scale) > w {
+		scale = 1
+	}
+	if BigNumberWidth(number, scale) > w {
+		number = bigDigits(mt)
+	}
+	for _, line := range BigNumber(number, scale) {
+		rows = append(rows, style.Render(line))
+	}
+	figureW = BigNumberWidth(number, scale)
+	rows = append(rows,
+		m.th.Style(m.th.Dim).Render(truncate(caption, w)),
+		"",
+	)
+	return rows, figureW
+}
+
+// bigText is the text drawn as the big figure: the value, and its unit when
+// there is room for one.
+func bigText(mt model.Metric) string {
+	value := model.FormatValueCompact(mt.Kind, mt.Value)
+	switch mt.Kind {
+	case model.KindTemperature:
+		return value + "\u00b0C"
+	case model.KindFan:
+		return value + "RPM"
+	default:
+		return value
+	}
+}
+
+// bigDigits is the fallback when even the value alone is too wide for the
+// panel: the unit has to go rather than the digits.
+func bigDigits(mt model.Metric) string {
+	return model.FormatValueCompact(mt.Kind, mt.Value)
+}
+
+// historyGraph draws the metric's history as a wide, thick dot graph filling
+// the rows it is given.
+//
+// Thick matters more than tall here: across seventy columns a one dot trace is
+// a hairline, and a hairline that steps four times a pixel is impossible to
+// read at a glance. Two dot rows of trace makes it a line again without hiding
+// the shape of the curve.
+func (m *Model) historyGraph(w, h int, mt model.Metric) []string {
+	h = min(h, 10)
+	if h < 3 {
+		return nil
+	}
+	return RenderGraph(m.Values(mt.ID), GraphOptions{
+		Width: w, Height: h,
+		Min: mt.Min, Max: mt.Max,
+		Fill:  false,
+		Thick: 2,
+		Warn:  mt.Warn,
+		Crit:  mt.Crit,
+	}, m.th)
+}
+
+// footer is the bottom line of a panel: what the number above it is judged
+// against, so the colours on the graph have a meaning the reader can see.
+func (m *Model) footer(w int, mt model.Metric) string {
+	var parts []string
+	if mt.Hint != "" {
+		parts = append(parts, m.th.Style(m.th.Dim).Render("avg of "+mt.Hint))
+	}
+	if mt.Warn > 0 && mt.Crit > 0 {
+		parts = append(parts,
+			m.th.Style(m.th.Warn).Render(fmt.Sprintf("warn %.1f\u00b0", mt.Warn)),
+			m.th.Style(m.th.Bad).Render(fmt.Sprintf("crit %.1f\u00b0", mt.Crit)))
+	}
+	return padLine(strings.Join(parts, m.th.Style(m.th.Dim).Render("   ")), w)
 }
 
 // moreRow says how many sensors did not fit, because a silently truncated list
@@ -367,31 +487,17 @@ func (m *Model) gpuContent(innerW, innerH int) []string {
 		return nil
 	}
 	devs := m.readableGPUs()
-	if len(devs) == 0 {
-		return []string{m.th.Style(m.th.Dim).Render("no GPU temperature sensors")}
-	}
-
-	var rows []string
 	mt, ok := m.Metric(collect.MetricGPUTemp)
-	if !ok {
+	if len(devs) == 0 || !ok {
 		return []string{m.th.Style(m.th.Dim).Render("no GPU temperature sensors")}
 	}
-	// Room for one row per card below the graph.
-	h := clampInt(innerH-2-len(devs), 5, 10)
-	rows = append(rows, RenderGraph(m.Values(mt.ID), GraphOptions{
-		Width: innerW, Height: h,
-		Min: mt.Min, Max: mt.Max,
-		Fill:  false,
-		Warn:  mt.Warn,
-		Crit:  mt.Crit,
-		Label: mt.Label,
-		Value: model.FormatValueCompact(mt.Kind, mt.Value),
-	}, m.th)...)
-	rows = append(rows, m.th.Style(m.th.Dim).Render(truncate(m.thresholdLine(mt), innerW)))
 
+	rows, _ := m.headline(innerW, mt, "temp")
+	rows = append(rows, m.historyGraph(innerW, innerH-len(rows)-len(devs)-1, mt)...)
 	for _, d := range devs {
 		rows = append(rows, m.gpuLine(d, innerW))
 	}
+	rows = append(rows, m.footer(innerW, mt))
 	return rows
 }
 
@@ -431,24 +537,14 @@ func (m *Model) fanContent(innerW, innerH int) []string {
 	if innerW < 8 {
 		return nil
 	}
-	var rows []string
-
 	mt, ok := m.Metric(collect.MetricFanAvg)
 	if !ok {
 		return []string{m.th.Style(m.th.Dim).Render("no fan sensors found")}
 	}
-	// Leave room for the fan list below the graph: on a short panel the
-	// individual fans matter more than the shape of their average.
-	h := clampInt(innerH/2, 4, 10)
-	rows = append(rows, RenderGraph(m.Values(mt.ID), GraphOptions{
-		Width: innerW, Height: h,
-		Min: mt.Min, Max: mt.Max,
-		Fill:  false,
-		Label: mt.Label,
-		Value: model.FormatValueCompact(mt.Kind, mt.Value),
-	}, m.th)...)
-	rows = append(rows, m.th.Style(m.th.Dim).Render(truncate("average of "+mt.Hint, innerW)))
 
+	// The list of individual fans has the last word on the height: on a short
+	// panel the fans themselves matter more than the shape of their average,
+	// so the average graph gives up rows first.
 	var fans []model.Metric
 	for _, f := range m.MetricsFor(model.CategorySensor) {
 		// The average is a headline in its own right; listing it again here
@@ -457,7 +553,15 @@ func (m *Model) fanContent(innerW, innerH int) []string {
 			fans = append(fans, f)
 		}
 	}
-	rows = append(rows, m.fanRows(innerW, innerH-len(rows), fans)...)
+	listRows := 0
+	if len(fans) > 0 {
+		listRows = (len(fans)+max(1, innerW/22)-1)/max(1, innerW/22) + 1
+	}
+
+	rows, _ := m.headline(innerW, mt, "fan")
+	rows = append(rows, m.historyGraph(innerW, innerH-len(rows)-listRows-1, mt)...)
+	rows = append(rows, m.fanRows(innerW, innerH-len(rows)-1, fans)...)
+	rows = append(rows, m.footer(innerW, mt))
 	return rows
 }
 
