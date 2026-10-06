@@ -41,6 +41,7 @@ func run() error {
 		listSensors = flag.Bool("list-sensors", false, "print the detected sensors and exit")
 		showVersion = flag.Bool("version", false, "print the version and exit")
 		showV      = flag.Bool("v", false, "print the version and exit (shorthand)")
+		theme       = flag.String("theme", "default", "color theme (default, dracula, nord, solarized-dark, solarized-light)")
 	)
 	flag.Parse()
 
@@ -75,9 +76,11 @@ func run() error {
 	cfg.RefreshInterval = *interval
 	cfg.HistoryCapacity = *capacity
 	cfg.GPUBackend = agg.GPUBackend
+	cfg.ThemeName = *theme
 
 	hist := history.NewStore(*capacity)
-	m := ui.New(agg, hist, cfg, ui.DefaultTheme())
+	th := ui.ThemeByName(*theme)
+	m := ui.New(agg, hist, cfg, th)
 	m.SetShowAllSensors(*showAll)
 	defer m.Close()
 

@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git add *)",
+      "Bash(git commit -m 'v1.1: version bump *)",
+      "Bash(git tag *)",
+      "Bash(git push *)",
+      "Bash(curl -s \"https://raw.githubusercontent.com/aristocratos/btop/master/README.md\")",
+      "Bash(curl -s \"https://api.github.com/repos/aristocratos/btop/contents/themes\")",
+      "Bash(curl -s \"https://api.github.com/repos/aristocratos/btop/contents/themes?per_page=100\")",
+      "Bash(mkdir -p /tmp/claude-scratch)",
+      "Read(//tmp/claude-scratch/**)",
+      "Bash(curl -s 'https://api.github.com/repos/aristocratos/btop/contents/themes?per_page=100')",
+      "Bash(go build *)",
+      "Bash(git commit -m 'Add theme system with 5 themes and live theme selection menu *)"
+    ]
+  }
+}

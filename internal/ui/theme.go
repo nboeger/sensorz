@@ -137,3 +137,104 @@ func (t Theme) Brighten(c lipgloss.AdaptiveColor, amount float64) lipgloss.Adapt
 func (t Theme) Style(c lipgloss.AdaptiveColor) lipgloss.Style {
 	return lipgloss.NewStyle().Foreground(c)
 }
+
+// ThemeByName returns the theme with the given name, or DefaultTheme if not found.
+func ThemeByName(name string) Theme {
+	switch name {
+	case "dracula":
+		return draculaTheme()
+	case "nord":
+		return nordTheme()
+	case "solarized-dark":
+		return solarizedDarkTheme()
+	case "solarized-light":
+		return solarizedLightTheme()
+	default:
+		return DefaultTheme()
+	}
+}
+
+// AvailableThemes returns the list of available theme names.
+func AvailableThemes() []string {
+	return []string{"default", "dracula", "nord", "solarized-dark", "solarized-light"}
+}
+
+// draculaTheme is a vibrant theme with distinct colors per element.
+func draculaTheme() Theme {
+	return Theme{
+		Border:      lipgloss.AdaptiveColor{Light: "#6272a4", Dark: "#6272a4"},
+		Title:       lipgloss.AdaptiveColor{Light: "#50fa7b", Dark: "#50fa7b"},
+		Label:       lipgloss.AdaptiveColor{Light: "#f8f8f2", Dark: "#f8f8f2"},
+		Value:       lipgloss.AdaptiveColor{Light: "#f8f8f2", Dark: "#f8f8f2"},
+		Dim:         lipgloss.AdaptiveColor{Light: "#6272a4", Dark: "#6272a4"},
+		PanelCPU:    lipgloss.AdaptiveColor{Light: "#50fa7b", Dark: "#50fa7b"},
+		PanelGPU:    lipgloss.AdaptiveColor{Light: "#bd93f9", Dark: "#bd93f9"},
+		PanelFans:   lipgloss.AdaptiveColor{Light: "#8be9fd", Dark: "#8be9fd"},
+		PanelDrives: lipgloss.AdaptiveColor{Light: "#ffb86c", Dark: "#ffb86c"},
+		PanelBoard:  lipgloss.AdaptiveColor{Light: "#ff79c6", Dark: "#ff79c6"},
+		Good:        lipgloss.AdaptiveColor{Light: "#50fa7b", Dark: "#50fa7b"},
+		Warn:        lipgloss.AdaptiveColor{Light: "#f1fa8c", Dark: "#f1fa8c"},
+		Bad:         lipgloss.AdaptiveColor{Light: "#ff5555", Dark: "#ff5555"},
+		Accent:      lipgloss.AdaptiveColor{Light: "#50fa7b", Dark: "#50fa7b"},
+	}
+}
+
+// nordTheme is a minimalist, cool theme with a consistent color palette.
+func nordTheme() Theme {
+	return Theme{
+		Border:      lipgloss.AdaptiveColor{Light: "#4c566a", Dark: "#4c566a"},
+		Title:       lipgloss.AdaptiveColor{Light: "#a3be8c", Dark: "#a3be8c"},
+		Label:       lipgloss.AdaptiveColor{Light: "#d8dee9", Dark: "#d8dee9"},
+		Value:       lipgloss.AdaptiveColor{Light: "#eceff4", Dark: "#eceff4"},
+		Dim:         lipgloss.AdaptiveColor{Light: "#4c566a", Dark: "#4c566a"},
+		PanelCPU:    lipgloss.AdaptiveColor{Light: "#a3be8c", Dark: "#a3be8c"},
+		PanelGPU:    lipgloss.AdaptiveColor{Light: "#81a1c1", Dark: "#81a1c1"},
+		PanelFans:   lipgloss.AdaptiveColor{Light: "#88c0d0", Dark: "#88c0d0"},
+		PanelDrives: lipgloss.AdaptiveColor{Light: "#b48ead", Dark: "#b48ead"},
+		PanelBoard:  lipgloss.AdaptiveColor{Light: "#d08770", Dark: "#d08770"},
+		Good:        lipgloss.AdaptiveColor{Light: "#a3be8c", Dark: "#a3be8c"},
+		Warn:        lipgloss.AdaptiveColor{Light: "#ebcb8b", Dark: "#ebcb8b"},
+		Bad:         lipgloss.AdaptiveColor{Light: "#bf616a", Dark: "#bf616a"},
+		Accent:      lipgloss.AdaptiveColor{Light: "#a3be8c", Dark: "#a3be8c"},
+	}
+}
+
+// solarizedDarkTheme uses the scientific Solarized palette (dark variant).
+func solarizedDarkTheme() Theme {
+	return Theme{
+		Border:      lipgloss.AdaptiveColor{Light: "#586e75", Dark: "#586e75"},
+		Title:       lipgloss.AdaptiveColor{Light: "#859900", Dark: "#859900"},
+		Label:       lipgloss.AdaptiveColor{Light: "#93a1a1", Dark: "#93a1a1"},
+		Value:       lipgloss.AdaptiveColor{Light: "#eee8d5", Dark: "#eee8d5"},
+		Dim:         lipgloss.AdaptiveColor{Light: "#657b83", Dark: "#657b83"},
+		PanelCPU:    lipgloss.AdaptiveColor{Light: "#859900", Dark: "#859900"},
+		PanelGPU:    lipgloss.AdaptiveColor{Light: "#268bd2", Dark: "#268bd2"},
+		PanelFans:   lipgloss.AdaptiveColor{Light: "#2aa198", Dark: "#2aa198"},
+		PanelDrives: lipgloss.AdaptiveColor{Light: "#b58900", Dark: "#b58900"},
+		PanelBoard:  lipgloss.AdaptiveColor{Light: "#d33682", Dark: "#d33682"},
+		Good:        lipgloss.AdaptiveColor{Light: "#859900", Dark: "#859900"},
+		Warn:        lipgloss.AdaptiveColor{Light: "#b58900", Dark: "#b58900"},
+		Bad:         lipgloss.AdaptiveColor{Light: "#dc322f", Dark: "#dc322f"},
+		Accent:      lipgloss.AdaptiveColor{Light: "#859900", Dark: "#859900"},
+	}
+}
+
+// solarizedLightTheme uses the scientific Solarized palette (light variant).
+func solarizedLightTheme() Theme {
+	return Theme{
+		Border:      lipgloss.AdaptiveColor{Light: "#93a1a1", Dark: "#586e75"},
+		Title:       lipgloss.AdaptiveColor{Light: "#859900", Dark: "#859900"},
+		Label:       lipgloss.AdaptiveColor{Light: "#657b83", Dark: "#93a1a1"},
+		Value:       lipgloss.AdaptiveColor{Light: "#002b36", Dark: "#eee8d5"},
+		Dim:         lipgloss.AdaptiveColor{Light: "#93a1a1", Dark: "#657b83"},
+		PanelCPU:    lipgloss.AdaptiveColor{Light: "#859900", Dark: "#859900"},
+		PanelGPU:    lipgloss.AdaptiveColor{Light: "#268bd2", Dark: "#268bd2"},
+		PanelFans:   lipgloss.AdaptiveColor{Light: "#2aa198", Dark: "#2aa198"},
+		PanelDrives: lipgloss.AdaptiveColor{Light: "#b58900", Dark: "#b58900"},
+		PanelBoard:  lipgloss.AdaptiveColor{Light: "#d33682", Dark: "#d33682"},
+		Good:        lipgloss.AdaptiveColor{Light: "#859900", Dark: "#859900"},
+		Warn:        lipgloss.AdaptiveColor{Light: "#b58900", Dark: "#b58900"},
+		Bad:         lipgloss.AdaptiveColor{Light: "#dc322f", Dark: "#dc322f"},
+		Accent:      lipgloss.AdaptiveColor{Light: "#859900", Dark: "#859900"},
+	}
+}

@@ -79,7 +79,9 @@ type Model struct {
 	// paused stops pushing new samples into history while keeping the display
 	// live, so a spike can be inspected.
 	paused bool
-	err    error
+	// showThemeMenu displays the theme selection overlay.
+	showThemeMenu bool
+	err           error
 
 	// live tracks whether the collector has produced anything yet.
 	live bool
@@ -197,6 +199,14 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.paused = false
 	case "?", "h":
 		m.cfg.ShowHelp = !m.cfg.ShowHelp
+	case "t":
+		m.showThemeMenu = !m.showThemeMenu
+	case "1", "2", "3", "4", "5":
+		if m.showThemeMenu {
+			m.selectTheme(msg.String())
+		}
+	case "esc":
+		m.showThemeMenu = false
 	}
 	return m, nil
 }
@@ -220,6 +230,18 @@ func (m *Model) cycleFocus(delta int) {
 		}
 	}
 	m.focus = visible[(idx+delta+len(visible))%len(visible)]
+}
+
+// selectTheme changes the theme based on the key pressed (1-5).
+func (m *Model) selectTheme(key string) {
+	themes := AvailableThemes()
+	idx := int(key[0] - '1')
+	if idx >= 0 && idx < len(themes) {
+		name := themes[idx]
+		m.cfg.ThemeName = name
+		m.th = ThemeByName(name)
+		m.showThemeMenu = false
+	}
 }
 
 // visibleFocus lists the panels that will actually be drawn, in reading order.

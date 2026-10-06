@@ -23,6 +23,8 @@ type Config struct {
 	// GPUBackend names the GPU telemetry source in use ("nvidia-nvml",
 	// "drm-sysfs", "pci-id"), shown when a GPU has no readings.
 	GPUBackend string
+	// ThemeName is the current theme name (default, dracula, nord, solarized-dark, solarized-light).
+	ThemeName string
 }
 
 // DefaultConfig returns the configuration sensorz uses with no config file.

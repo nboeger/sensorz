@@ -48,7 +48,10 @@ func (m *Model) View() string {
 		b.WriteString(m.board(w, boardH))
 	}
 
-	if m.cfg.ShowHelp {
+	if m.showThemeMenu {
+		b.WriteByte('\n')
+		b.WriteString(m.themeMenu(w))
+	} else if m.cfg.ShowHelp {
 		b.WriteByte('\n')
 		b.WriteString(m.help(w))
 	}
@@ -774,6 +777,7 @@ func (m *Model) help(w int) string {
 		{"a", "all sensors"},
 		{"p", "pause history"},
 		{"r", "reset history"},
+		{"t", "themes"},
 		{"?", "toggle help"},
 		{"q", "quit"},
 	}
@@ -782,6 +786,22 @@ func (m *Model) help(w int) string {
 		cols = append(cols, m.th.Style(m.th.Accent).Render(k[0])+" "+m.th.Style(m.th.Dim).Render(k[1]))
 	}
 	line := strings.Join(cols, m.th.Style(m.th.Dim).Render("  ·  "))
+	return truncate(line, w)
+}
+
+func (m *Model) themeMenu(w int) string {
+	themes := AvailableThemes()
+	var items []string
+	for i, name := range themes {
+		key := string(rune('1' + i))
+		indicator := " "
+		if m.cfg.ThemeName == name {
+			indicator = "✓"
+		}
+		item := fmt.Sprintf("%s %s [%s]", key, indicator, name)
+		items = append(items, m.th.Style(m.th.Accent).Render(item))
+	}
+	line := fmt.Sprintf("Themes: %s  %s", strings.Join(items, "  "), m.th.Style(m.th.Dim).Render("(press Esc to close)"))
 	return truncate(line, w)
 }
 
