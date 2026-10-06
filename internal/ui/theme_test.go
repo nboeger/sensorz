@@ -168,36 +168,3 @@ func TestAllPanelsShareOneHue(t *testing.T) {
 		}
 	}
 }
-
-// The level ramp answers a different question from the graph ramp: not "is this
-// hot" but "how much of the headroom is gone". A reading at two thirds of its
-// limit must already be leaning yellow, or the bar says nothing while it is
-// still climbing.
-func TestRampToTracksTheLimit(t *testing.T) {
-	th := DefaultTheme()
-	const crit = 97.0
-
-	if got := th.RampTo(20, crit); got != th.Good {
-		t.Errorf("a cold reading is %v, want plain green", got)
-	}
-	if got := th.RampTo(crit, crit); got != th.Bad {
-		t.Errorf("a reading at the limit is %v, want red", got)
-	}
-	if got := th.RampTo(crit+20, crit); got != th.Bad {
-		t.Errorf("a reading past the limit is %v, want red", got)
-	}
-
-	// 64C on a part that dies at 97C: two thirds of the way, and already warm.
-	mid := th.RampTo(64, crit)
-	if mid == th.Good {
-		t.Errorf("64C on a 97C limit is plain green; the bar gives no warning while it climbs")
-	}
-	if mid == th.Bad {
-		t.Errorf("64C on a 97C limit is already red")
-	}
-
-	// A metric with no limit cannot be close to one.
-	if got := th.RampTo(5000, 0); got != th.Good {
-		t.Errorf("a reading with no limit is %v, want green", got)
-	}
-}

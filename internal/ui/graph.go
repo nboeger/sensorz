@@ -5,8 +5,6 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-
-	"github.com/nathan/sensorz/internal/model"
 )
 
 // GraphOptions configures how a series is rendered into panel rows.
@@ -44,14 +42,8 @@ type GraphOptions struct {
 	// that holds is a staircase, not a slope.
 	Columns bool
 	// Dots renders a lit cell as a dot matrix rather than as the exact set of
-	// dots the plot put there.
-	//
-	// A cell whose eight dots are all lit is a solid block, and a column chart
-	// of solid blocks is a rectangle: the shape is there but the texture is
-	// gone, and a series that holds looks like a wall rather than a plateau.
-	// Intersecting with a dot pattern keeps the shape and gives every filled
-	// cell the same texture, so a steady series reads as a textured plateau and
-	// a moving one as a stepped edge.
+	// dots the plot put there, so a filled region keeps its texture instead of
+	// becoming a solid block.
 	Dots bool
 }
 
@@ -98,62 +90,15 @@ func RenderGraph(values []float64, o GraphOptions, th Theme) []string {
 	return out
 }
 
-// barDots is the pattern a level bar is drawn with: two rows of two dots per
-// cell. A dot matrix, not a solid block, so a filled bar reads as a column of
-// little dots rather than as a rectangle of colour.
-const barDots = 0x33
-
-// levelBar draws a reading as a solid column of dots standing on the baseline.
+// dotPattern is the braille pattern a filled cell is drawn with: two rows of
+// two dots per cell.
 //
-// The height is the reading's share of its limit and the colour is how close
-// that share is to the limit: pale green while there is half the scale in hand,
-// warming through yellow, red at the critical point. It is a thermometer, not a
-// time series, which is the point of drawing it vertically - a bar next to a
-// number answers "how hot is it now" without the reader having to find the top
-// of a curve and trace it down to a scale that is not labelled.
-//
-// The unfilled part of the column is left as dim dots rather than blank, so the
-// full height of the bar reads as the scale and the filled part as the reading.
-func (m *Model) levelBar(w, h int, mt model.Metric) []string {
-	if w <= 0 || h <= 0 {
-		return nil
-	}
-
-	scale, color := mt.Crit, m.th.RampTo(mt.Value, mt.Crit)
-	if scale <= 0 {
-		// Nothing to climb towards - fan speed has no critical point - so the
-		// bar is scaled against the sensor's own ceiling and stays green,
-		// because more of a fan is not worse.
-		scale, color = mt.Max, m.th.Good
-	}
-	if scale <= 0 {
-		return nil
-	}
-
-	level := int(math.Round(clamp01(mt.Value/scale) * float64(h)))
-	dots := string(brailleRunes[barDots])
-
-	rows := make([]string, h)
-	for y := 0; y < h; y++ {
-		style := m.th.Style(m.th.Dim)
-		if y >= h-level {
-			style = m.th.Style(color)
-		}
-		rows[y] = style.Render(strings.Repeat(dots, w))
-	}
-	return rows
-}
-
-// clamp01 bounds a fraction to 0..1.
-func clamp01(v float64) float64 {
-	if v < 0 {
-		return 0
-	}
-	if v > 1 {
-		return 1
-	}
-	return v
-}
+// A cell whose eight dots are all lit is a solid block, and a column chart of
+// solid blocks is a rectangle: the shape is there but the texture is gone, and a
+// series that holds looks like a wall rather than a plateau. Intersecting the
+// plot's dots with this pattern keeps the shape and gives every filled cell the
+// same texture.
+const dotPattern = 0x33
 
 // paintRow colours one rendered row of braille.
 //
@@ -179,7 +124,7 @@ func paintRow(grid *Grid, y int, row string, o GraphOptions, th Theme, lineColor
 		}
 		cell := runes[x]
 		if o.Dots {
-			cell = brailleRunes[grid.cells[y*w+x]&barDots]
+			cell = brailleRunes[grid.cells[y*w+x]&dotPattern]
 		}
 		b.WriteString(lipgloss.NewStyle().Foreground(color).Render(string(cell)))
 	}

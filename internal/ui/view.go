@@ -237,10 +237,9 @@ func (m *Model) board(w, h int) string {
 	return p.Render(m.boardContent(p.Inner()))
 }
 
-// minFigureWidth is the narrowest a panel can be and still hold the level bar
-// and the figure side by side, with a little air. Below it the figure takes
-// the whole width and the bar is dropped.
-const minFigureWidth = 26
+// minFigureWidth is the narrowest a panel can be and still hold the figure with
+// its label and unit. Below it the panel is all figure.
+const minFigureWidth = 18
 
 // minGraphRows is the fewest rows a history graph is worth drawing in. Below
 // three the plot says nothing, so the panel shows the number and the
@@ -269,17 +268,6 @@ func (m *Model) headline(w int, mt model.Metric, caption string, budget int) (ro
 	figure := BigNumberHalf(number, 1)
 	figureW = BigNumberWidth(number, 1)
 
-	const (
-		barW   = 6
-		barGap = 2
-	)
-
-	// The figure is the reading and the bar is the context, so on a narrow
-	// panel the bar goes rather than the figure, and on a very narrow one the
-	// unit goes rather than the digits. A figure cut off by the panel edge is
-	// the one thing the panel must never draw.
-	showBar := figureW+barW+barGap <= w
-
 	rows = []string{center(m.th.Style(m.th.Label).Render(truncate(mt.Label, w)), w)}
 	// The air above the figure is the first thing to go: on a short panel the
 	// graph is worth more than the spacing.
@@ -287,33 +275,17 @@ func (m *Model) headline(w int, mt model.Metric, caption string, budget int) (ro
 		rows = append(rows, "")
 	}
 
+	// The figure, its unit, and then as much air as the budget allows above
+	// and below it. The number is the whole panel: there is one graph down the
+	// left, and beside it there is the figure and nothing else to compete.
 	hasCaption := budget-len(rows) >= 2
-	blockH := len(figure)
+	for _, line := range figure {
+		rows = append(rows, center(style.Render(line), w))
+	}
 	if hasCaption {
-		blockH++
+		rows = append(rows, center(m.th.Style(m.th.Dim).Render(truncate(caption, w)), w))
 	}
-	extra := clampInt(budget-len(rows)-blockH, 0, 4)
-	barH := blockH + extra
-	var bar []string
-	if showBar {
-		bar = m.levelBar(barW, barH, mt)
-	}
-
-	for i := 0; i < barH; i++ {
-		right := ""
-		switch {
-		case i < len(figure):
-			right = style.Render(figure[i])
-		case hasCaption && i == len(figure):
-			right = m.th.Style(m.th.Dim).Render(truncate(caption, w))
-		}
-		left := ""
-		if showBar {
-			left = bar[i] + strings.Repeat(" ", barGap)
-		}
-		rows = append(rows, center(left+right, w))
-	}
-	if extra == 0 && budget-len(rows) >= 1 {
+	for budget-len(rows) >= 1 {
 		rows = append(rows, "")
 	}
 	return rows, figureW
