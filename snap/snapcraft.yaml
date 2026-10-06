@@ -1,0 +1,85 @@
+name: sensorz
+base: core22
+version: 0.1.0
+summary: A terminal temperature and fan monitor
+title: sensorz — Temperature and Fan Monitor
+description: |
+  sensorz shows how hot your machine is and whether its fans are still spinning.
+
+  One box per class of sensor - CPU, GPU, drives, and the motherboard
+  thermistors - each with one large figure, its history as a graph, and the
+  thresholds it is judged against. Where a machine reports many of a thing, the
+  readings are averaged rather than listed: sixteen cores and eight case fans
+  are four numbers, not twenty-four.
+
+  It reads the kernel's hardware monitoring interface directly, so it works with
+  whatever drivers the machine already has, and it reports temperatures and fan
+  speeds and nothing else.
+
+grade: stable
+
+# Classic confinement, and not a negotiating one.
+#
+# sensorz reads what the kernel says about the hardware: /sys/class/hwmon for
+# every temperature and fan tachometer, /sys/class/drm and /sys/bus/pci/devices
+# for the GPU, /proc/stat for the core count. A confined snap gets a private
+# /sys, and core22's skeleton does not contain a /sys directory at all, so there
+# is no layout that can bind the sensors in - snapcraft rejects every one of
+# them with "defines a new top-level directory /sys". Even where a layout is
+# expressible, the profile still has to allow the read.
+#
+# So the choice is a snap that measures nothing, or one that runs with the same
+# access the installed binary has. This is the second. Nothing else changes
+# about it: it makes no network connections, opens no files outside /sys and
+# /proc, and writes nothing, so there is nothing for confinement to protect.
+confinement: classic
+contact: https://github.com/nboeger/sensorz/issues
+issues: https://github.com/nboeger/sensorz/issues
+website: https://github.com/nboeger/sensorz
+source-code: https://github.com/nboeger/sensorz
+license: GPL-3.0
+
+apps:
+  sensorz:
+    command: bin/sensorz
+
+parts:
+  sensorz:
+    plugin: nil
+    source: .
+    build-packages:
+      - gcc
+    stage:
+      - -usr/share/doc
+    override-build: |
+      set -eux
+      # The snap's version is the single source of truth: the same number is
+      # compiled into the binary and shown by `sensorz -version`.
+      VERSION=$(awk '/^version:/{print $2}' "$CRAFT_PROJECT_DIR/snap/snapcraft.yaml" | head -1)
+      [ -n "$VERSION" ] || VERSION="0.0.0"
+      ARCH=$(uname -m)
+      case "$ARCH" in
+        x86_64)  GOARCH=amd64 ;;
+        aarch64) GOARCH=arm64 ;;
+        *) echo "unsupported arch: $ARCH"; exit 1 ;;
+      esac
+      # core22 ships an older Go than go.mod asks for, so fetch the toolchain
+      # the module requires rather than loosening the requirement.
+      GOVERSION=$(awk '/^go /{print $2}' go.mod | head -1)
+      [ -n "$GOVERSION" ] || GOVERSION=1.26.5
+      curl -fsSLo /tmp/go.tgz "https://go.dev/dl/go${GOVERSION}.linux-$GOARCH.tar.gz"
+      rm -rf /tmp/gotoolchain
+      mkdir -p /tmp/gotoolchain
+      tar -C /tmp/gotoolchain --strip-components=1 -xzf /tmp/go.tgz
+      export GOROOT=/tmp/gotoolchain
+      export PATH="$GOROOT/bin:$PATH"
+      # cgo is not optional: the NVML bindings are cgo. They dlopen the
+      # driver's library at runtime rather than linking it, so the build needs
+      # no NVIDIA headers and the binary still starts on a machine with no
+      # NVIDIA card at all.
+      CGO_ENABLED=1 \
+        go build -trimpath \
+        -ldflags "-s -w -X main.version=$VERSION" \
+        -o sensorz ./cmd/sensorz
+      mkdir -p "$CRAFT_PART_INSTALL/bin"
+      cp sensorz "$CRAFT_PART_INSTALL/bin/"
