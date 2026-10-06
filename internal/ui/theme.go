@@ -15,12 +15,11 @@ import (
 // yellow to red as a reading approaches its limit, and one hue per panel box so
 // the dashboard reads as a set of separate instruments rather than one grid.
 type Theme struct {
-	Border      lipgloss.AdaptiveColor
-	BorderFocus lipgloss.AdaptiveColor
-	Title       lipgloss.AdaptiveColor
-	Label       lipgloss.AdaptiveColor
-	Value       lipgloss.AdaptiveColor
-	Dim         lipgloss.AdaptiveColor
+	Border lipgloss.AdaptiveColor
+	Title  lipgloss.AdaptiveColor
+	Label  lipgloss.AdaptiveColor
+	Value  lipgloss.AdaptiveColor
+	Dim    lipgloss.AdaptiveColor
 
 	// PanelCPU, PanelGPU, PanelFans, PanelDrives and PanelBoard colour each
 	// box's border and title. Compute boxes are green and the rest take a
@@ -54,29 +53,33 @@ func DefaultTheme() Theme {
 	// Each colour needs a light and a dark variant: the light variant has to be
 	// dark enough to read on white, the dark one bright enough to read on
 	// black, so they are not simply inversions of each other.
-	green := lipgloss.AdaptiveColor{Light: "#5d8c22", Dark: "#a9dd72"}
-	blue := lipgloss.AdaptiveColor{Light: "#1f6b8c", Dark: "#8fcee6"}
-	purple := lipgloss.AdaptiveColor{Light: "#6f3f9c", Dark: "#cbaae8"}
+	//
+	// Both hues are desaturated and darkened on purpose. A saturated green is
+	// an alarm, and this dashboard spends most of its time showing readings
+	// that are fine; the box colours are structure, not status, and the status
+	// is carried by the reading's own colour. So: a dark pale green for the
+	// compute boxes, a dark pale purple for everything else.
+	green := lipgloss.AdaptiveColor{Light: "#4d6b38", Dark: "#79a86a"}
+	purple := lipgloss.AdaptiveColor{Light: "#56456a", Dark: "#8f7fb0"}
 
 	return Theme{
-		Border:      lipgloss.AdaptiveColor{Light: "#bcbcbc", Dark: "#4a4a4a"},
-		BorderFocus: lipgloss.AdaptiveColor{Light: "#0f7fa5", Dark: "#9fdcf0"},
-		Title:       lipgloss.AdaptiveColor{Light: "#0f6b8c", Dark: "#9fdcf0"},
-		Label:       lipgloss.AdaptiveColor{Light: "#6f6f6f", Dark: "#d4d4d4"},
-		Value:       lipgloss.AdaptiveColor{Light: "#2a2a2a", Dark: "#f2f2f2"},
-		Dim:         lipgloss.AdaptiveColor{Light: "#9a9a9a", Dark: "#8a8a8a"},
+		Border: lipgloss.AdaptiveColor{Light: "#bcbcbc", Dark: "#4a4a4a"},
+		Title:  lipgloss.AdaptiveColor{Light: "#4d6b38", Dark: "#b8d3a8"},
+		Label:  lipgloss.AdaptiveColor{Light: "#6f6f6f", Dark: "#d4d4d4"},
+		Value:  lipgloss.AdaptiveColor{Light: "#2a2a2a", Dark: "#f2f2f2"},
+		Dim:    lipgloss.AdaptiveColor{Light: "#9a9a9a", Dark: "#8a8a8a"},
 
 		PanelCPU:    green,
 		PanelGPU:    green,
-		PanelFans:   blue,
+		PanelFans:   purple,
 		PanelDrives: green,
 		PanelBoard:  purple,
 
-		Good: lipgloss.AdaptiveColor{Light: "#5d8c22", Dark: "#a9dd72"},
+		Good: lipgloss.AdaptiveColor{Light: "#4d6b38", Dark: "#79a86a"},
 		Warn: lipgloss.AdaptiveColor{Light: "#a38600", Dark: "#ffe98a"},
 		Bad:  lipgloss.AdaptiveColor{Light: "#b8453f", Dark: "#ffa0a0"},
 
-		Accent: lipgloss.AdaptiveColor{Light: "#0f7fa5", Dark: "#9fdcf0"},
+		Accent: lipgloss.AdaptiveColor{Light: "#4d6b38", Dark: "#b8d3a8"},
 	}
 }
 
@@ -119,6 +122,16 @@ func (t Theme) Ramp(value, warn, crit float64) lipgloss.AdaptiveColor {
 	default:
 		return blend(t.Warn, t.Bad, math.Min(1, (r-0.5)*2))
 	}
+}
+
+// Brighten washes a colour toward white.
+//
+// The focused panel is drawn in a brightened version of its own hue rather than
+// in a fixed highlight colour: a box keeps the identity its colour gave it, and
+// the cursor is still obvious because it is the only bright box on screen.
+func (t Theme) Brighten(c lipgloss.AdaptiveColor, amount float64) lipgloss.AdaptiveColor {
+	white := lipgloss.AdaptiveColor{Light: "#ffffff", Dark: "#ffffff"}
+	return blend(c, white, amount)
 }
 
 // Style builds a lipgloss style in the given colour.

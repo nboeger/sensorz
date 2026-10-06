@@ -256,55 +256,15 @@ func (m *Model) cpuContent(innerW, innerH int) []string {
 
 	// A graph is worth three rows on its own, so whatever the panel cannot give
 	// the graph comes out of the figure's surroundings.
-	head, figureW := m.headline(innerW, mt, "temp", innerH-minGraphRows-1)
-
-	// The space beside the big figure is not dead space: it is where the
-	// individual sensors go. A 32 core machine has 33 channels, and the moment
-	// the average is not enough is the moment one core is running hotter than
-	// its neighbours.
-	if side := m.sidePanel(innerW-figureW-3, len(head), m.cpuDetail()); len(side) > 0 {
-		head = joinSide(head, side, figureW)
-	}
-
+	// One number and its history. The individual cores are deliberately not
+	// listed: on a 32 core machine that is 32 rows of near-identical numbers,
+	// and the average is the figure that answers the question the panel was
+	// opened to ask.
+	head, _ := m.headline(innerW, mt, "temp", innerH-minGraphRows-1)
 	rows := head
 	rows = append(rows, m.historyGraph(innerW, innerH-len(rows)-1, mt)...)
 	rows = append(rows, m.footer(innerW, mt))
 	return rows
-}
-
-// sidePanel renders the sensors that fit beside the big figure, as one label
-// and number per row.
-func (m *Model) sidePanel(w, h int, temps []model.Metric) []string {
-	if len(temps) == 0 || w < 16 {
-		return nil
-	}
-	// The first row of the block is blank above the label, so the list starts
-	// one row down to line up with it.
-	rows := []string{""}
-	rows = append(rows, m.tempList(w, h-2, temps)...)
-	// One row is spent on the count, so the reader knows the list is a sample.
-	rows = append(rows, m.moreRow(len(temps), w))
-	for len(rows) < h {
-		rows = append(rows, "")
-	}
-	return rows
-}
-
-// joinSide places side beside the headline block, row by row.
-//
-// headW is the width of the figure rather than the width of the block: the
-// headline rows are padded to the panel so their colour spans it, and using
-// that padded width here would push the side list clean off the right edge.
-func joinSide(head, side []string, headW int) []string {
-	out := make([]string, len(head))
-	for i := range head {
-		left := padLine(head[i], headW)
-		if i < len(side) {
-			left += "  " + side[i]
-		}
-		out[i] = left
-	}
-	return out
 }
 
 // minGraphRows is the fewest rows a history graph is worth drawing in. Below
@@ -315,10 +275,10 @@ const minGraphRows = 3
 // headline renders the panel's one important number: what is being measured,
 // the value as a large block figure, and its unit underneath.
 //
-// The figure is drawn as a grid of blocks rather than as text because a terminal
-// has one font size: the only way to make a number bigger is to draw it. The
-// unit goes below rather than beside, so the digits line up on the left edge
-// whatever the unit is.
+// The figure is drawn as a grid of blocks rather than as text because a
+// terminal has one font size: the only way to make a number bigger is to draw
+// it. The unit goes below rather than beside, so the digits line up on the same
+// row whatever the unit is.
 func (m *Model) headline(w int, mt model.Metric, caption string, budget int) (rows []string, figureW int) {
 	color := m.th.Ramp(mt.Value, mt.Warn, mt.Crit)
 	style := m.th.Style(color).Bold(true)
@@ -332,7 +292,7 @@ func (m *Model) headline(w int, mt model.Metric, caption string, budget int) (ro
 		number = bigDigits(mt)
 	}
 
-	rows = []string{m.th.Style(m.th.Label).Render(truncate(mt.Label, w))}
+	rows = []string{center(m.th.Style(m.th.Label).Render(truncate(mt.Label, w)), w)}
 	// The air around the figure is the first thing to go: on a short panel the
 	// graph is worth more than the spacing, and a blank row is a row of
 	// history not shown.
@@ -340,16 +300,30 @@ func (m *Model) headline(w int, mt model.Metric, caption string, budget int) (ro
 		rows = append(rows, "")
 	}
 	for _, line := range BigNumberHalf(number, 1) {
-		rows = append(rows, style.Render(line))
+		rows = append(rows, center(style.Render(line), w))
 	}
 	figureW = BigNumberWidth(number, 1)
 	if budget-len(rows) >= 2 {
-		rows = append(rows, m.th.Style(m.th.Dim).Render(truncate(caption, w)))
+		rows = append(rows, center(m.th.Style(m.th.Dim).Render(truncate(caption, w)), w))
 	}
 	if budget-len(rows) >= 1 {
 		rows = append(rows, "")
 	}
 	return rows, figureW
+}
+
+// center puts a rendered row in the middle of the width it is drawn into.
+//
+// The panels hold one number and nothing beside them now, so it is centred
+// rather than left aligned: an empty box with a figure jammed against its left
+// edge reads as a mistake, and a centred one reads as a readout.
+func center(s string, w int) string {
+	sw := lipgloss.Width(s)
+	if sw >= w {
+		return truncateStyled(s, w)
+	}
+	left := (w - sw) / 2
+	return strings.Repeat(" ", left) + s + strings.Repeat(" ", w-left-sw)
 }
 
 // bigText is the text drawn as the big figure: the value, and its unit when
@@ -553,94 +527,14 @@ func (m *Model) fanContent(innerW, innerH int) []string {
 		return []string{m.th.Style(m.th.Dim).Render("no fan sensors found")}
 	}
 
-	// The list of individual fans has the last word on the height: on a short
-	// panel the fans themselves matter more than the shape of their average,
-	// so the average graph gives up rows first.
-	var fans []model.Metric
-	for _, f := range m.MetricsFor(model.CategorySensor) {
-		// The average is a headline in its own right; listing it again here
-		// would double count it against the fans it is made of.
-		if f.Kind == model.KindFan && f.ID != collect.MetricFanAvg {
-			fans = append(fans, f)
-		}
-	}
-	listRows := 0
-	if len(fans) > 0 {
-		listRows = (len(fans)+max(1, innerW/22)-1)/max(1, innerW/22) + 1
-	}
-
-	rows, _ := m.headline(innerW, mt, "fan", innerH-listRows-minGraphRows-1)
-	rows = append(rows, m.historyGraph(innerW, innerH-len(rows)-listRows-1, mt)...)
-	rows = append(rows, m.fanRows(innerW, innerH-len(rows)-1, fans)...)
+	// The average, the same shape as the CPU panel. The individual fans are not
+	// listed here either: a case has eight of them and they all sit within a
+	// few hundred RPM of each other, so the average is the figure that says
+	// whether the cooling is keeping up.
+	rows, _ := m.headline(innerW, mt, "fan", innerH-minGraphRows-1)
+	rows = append(rows, m.historyGraph(innerW, innerH-len(rows)-1, mt)...)
 	rows = append(rows, m.footer(innerW, mt))
 	return rows
-}
-
-// fanRows lists each fan as a labelled meter.
-//
-// Fans are listed rather than graphed: a case has eight of them, they all sit
-// in the same few hundred RPM, and what the user is looking for is the one that
-// is stopped rather than the shape of its last two minutes. The average gets
-// the graph because its shape over time is the interesting part.
-func (m *Model) fanRows(w, availRows int, fans []model.Metric) []string {
-	if len(fans) == 0 {
-		return []string{m.th.Style(m.th.Dim).Render("no fan sensors found")}
-	}
-	// Sort by speed so the fastest fan is first; a stopped fan is the thing
-	// being looked for, and it is easier to find at the bottom of a sorted
-	// list than by reading every row.
-	sort.SliceStable(fans, func(i, j int) bool { return fans[i].Value > fans[j].Value })
-
-	// The chip name only earns its space when more than one chip reports fans;
-	// otherwise "Fan 1" says everything and the prefix is noise.
-	chips := map[string]bool{}
-	for _, f := range fans {
-		chips[f.Group] = true
-	}
-	prefixed := len(chips) > 1
-
-	const cellW = 22
-	const labelW = 10
-	cols := max(1, w/cellW)
-	rows := (len(fans) + cols - 1) / cols
-	truncated := 0
-	if availRows > 0 && rows > availRows {
-		truncated = len(fans) - availRows*cols
-		rows = availRows
-	}
-
-	out := make([]string, 0, rows)
-	for r := 0; r < rows; r++ {
-		var b strings.Builder
-		for c := 0; c < cols; c++ {
-			i := r*cols + c
-			if i >= len(fans) {
-				continue
-			}
-			mt := fans[i]
-			frac := 0.0
-			if mt.Max > mt.Min {
-				frac = model.Clamp((mt.Value-mt.Min)/(mt.Max-mt.Min), 0, 1)
-			}
-			label := mt.Label
-			if prefixed {
-				label = mt.Group + " " + mt.Label
-			}
-			cell := m.th.Style(m.th.Label).Render(truncate(label, labelW)) + " " +
-				Meter(5, frac, m.th, m.th.Ramp(mt.Value, mt.Warn, mt.Crit)) + " " +
-				m.th.Style(m.th.Ramp(mt.Value, mt.Warn, mt.Crit)).Render(model.FormatValueCompact(mt.Kind, mt.Value))
-			if pad := cellW - lipgloss.Width(cell); pad > 0 {
-				cell += strings.Repeat(" ", pad)
-			}
-			b.WriteString(cell)
-		}
-		line := b.String()
-		if r == rows-1 && truncated > 0 {
-			line += m.th.Style(m.th.Dim).Render(fmt.Sprintf("+%d", truncated))
-		}
-		out = append(out, line)
-	}
-	return out
 }
 
 // driveContent draws one temperature graph per drive, with the drive's
@@ -915,22 +809,6 @@ func (m *Model) chipHeading(w int, chip string, n int) string {
 		txt += " (" + itoaStr(n) + ")"
 	}
 	return m.th.Style(m.th.Title).Render(truncate(txt, w))
-}
-
-// thresholdLine describes an average: how many sensors it covers and where its
-// warning points are, so the number on the graph is not just a bare figure.
-func (m *Model) thresholdLine(mt model.Metric) string {
-	parts := []string{}
-	if mt.Hint != "" {
-		parts = append(parts, "average of "+mt.Hint)
-	}
-	if l := ThresholdLabel(mt.Warn, mt.Crit, "°"); l != "" {
-		parts = append(parts, l)
-	}
-	if len(parts) == 0 {
-		return ""
-	}
-	return strings.Join(parts, m.th.Style(m.th.Dim).Render(" · "))
 }
 
 // warningLine surfaces collector problems without stealing screen space.

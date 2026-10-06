@@ -57,7 +57,7 @@ func (p *Panel) borderColor() lipgloss.AdaptiveColor {
 		c = p.theme.Border
 	}
 	if p.Focus {
-		return p.theme.BorderFocus
+		return p.theme.Brighten(c, 0.55)
 	}
 	return c
 }
