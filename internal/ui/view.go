@@ -237,57 +237,26 @@ func (m *Model) board(w, h int) string {
 	return p.Render(m.boardContent(p.Inner()))
 }
 
-// cpuContent draws the CPU panel: the average across every CPU temperature
-// sensor as a large figure, its history as a wide graph beneath it, and the
-// thresholds it is judged against along the bottom.
-//
-// The big number is the headline because a 32-core machine has 33 temperature
-// channels and the user wants one figure that says "how hot is my CPU". The
-// detail graphs below it are still there, for the moment when the average is
-// not enough - finding the one core running 15 degrees hotter than its
-// neighbours.
-func (m *Model) cpuContent(innerW, innerH int) []string {
-	if innerW < 8 {
-		return nil
-	}
-	mt, ok := m.Metric(collect.MetricCPUTemp)
-	if !ok {
-		return []string{m.th.Style(m.th.Dim).Render("no CPU temperature sensors exposed")}
-	}
-
-	// A graph is worth three rows on its own, so whatever the panel cannot give
-	// the graph comes out of the figure's surroundings.
-	// One number and its history. The individual cores are deliberately not
-	// listed: on a 32 core machine that is 32 rows of near-identical numbers,
-	// and the average is the figure that answers the question the panel was
-	// opened to ask.
-	head, _ := m.headline(innerW, mt, "temp", innerH-minGraphRows-1)
-	rows := head
-	rows = append(rows, m.historyGraph(innerW, innerH-len(rows)-1, mt)...)
-	rows = append(rows, m.footer(innerW, mt))
-	return rows
-}
-
 // minGraphRows is the fewest rows a history graph is worth drawing in. Below
-// three the curve is unreadable, so the panel shows the number and the
-// thresholds instead of a graph that says nothing.
+// three the plot says nothing, so the panel shows the number and the
+// thresholds instead.
 const minGraphRows = 3
 
-// headline renders the panel's one important number: what is being measured,
-// the value as a large block figure, and its unit underneath.
+// headline renders the panel's one important number: what is being measured, a
+// level bar showing how much of its limit is used, the value as a large block
+// figure, and the unit underneath.
 //
-// The figure is drawn as a grid of blocks rather than as text because a
-// terminal has one font size: the only way to make a number bigger is to draw
-// it. The unit goes below rather than beside, so the digits line up on the same
-// row whatever the unit is.
+// The figure is drawn rather than typed because a terminal has one font size:
+// the only way to make a number bigger is to draw it. The bar stands to its
+// left, because a bar beside a number says how much of the limit is gone where
+// a number on its own only says where it is.
 func (m *Model) headline(w int, mt model.Metric, caption string, budget int) (rows []string, figureW int) {
 	color := m.th.Ramp(mt.Value, mt.Warn, mt.Crit)
 	style := m.th.Style(color).Bold(true)
 
 	// Half size: one cell per pixel, with the pixel rows packed two to a cell
 	// by the half-block glyphs. A digit is three cells wide and three rows
-	// tall, which still reads as a display figure but leaves the panel for the
-	// bar and the graph.
+	// tall, which still reads as a display figure without eating the panel.
 	number := bigText(mt)
 	if BigNumberWidth(number, 1) > w {
 		number = bigDigits(mt)
@@ -302,16 +271,11 @@ func (m *Model) headline(w int, mt model.Metric, caption string, budget int) (ro
 
 	rows = []string{center(m.th.Style(m.th.Label).Render(truncate(mt.Label, w)), w)}
 	// The air above the figure is the first thing to go: on a short panel the
-	// graph is worth more than the spacing, and a blank row is a row of
-	// history not shown.
+	// graph is worth more than the spacing.
 	if budget-len(rows) >= 5 {
 		rows = append(rows, "")
 	}
 
-	// The figure block is the number with its caption underneath. The bar is
-	// drawn at least as tall as that, and takes any rows left over as well: a
-	// four row bar cannot show where a reading sits on its scale, so the extra
-	// room goes to the bar rather than to air.
 	hasCaption := budget-len(rows) >= 2
 	blockH := len(figure)
 	if hasCaption {
@@ -338,10 +302,6 @@ func (m *Model) headline(w int, mt model.Metric, caption string, budget int) (ro
 }
 
 // center puts a rendered row in the middle of the width it is drawn into.
-//
-// The panels hold one number and nothing beside them now, so it is centred
-// rather than left aligned: an empty box with a figure jammed against its left
-// edge reads as a mistake, and a centred one reads as a readout.
 func center(s string, w int) string {
 	sw := lipgloss.Width(s)
 	if sw >= w {
@@ -351,8 +311,7 @@ func center(s string, w int) string {
 	return strings.Repeat(" ", left) + s + strings.Repeat(" ", w-left-sw)
 }
 
-// bigText is the text drawn as the big figure: the value, and its unit when
-// there is room for one.
+// bigText is the text drawn as the big figure: the value, and its unit.
 func bigText(mt model.Metric) string {
 	value := model.FormatValueCompact(mt.Kind, mt.Value)
 	switch mt.Kind {
@@ -371,26 +330,81 @@ func bigDigits(mt model.Metric) string {
 	return model.FormatValueCompact(mt.Kind, mt.Value)
 }
 
-// historyGraph draws the metric's history as a wide, thick dot graph filling
-// the rows it is given.
+// columnGraph draws the metric's history as dense vertical columns of dots
+// standing on the baseline, filling the width it is given.
 //
-// Thick matters more than tall here: across seventy columns a one dot trace is
-// a hairline, and a hairline that steps four times a pixel is impossible to
-// read at a glance. Two dot rows of trace makes it a line again without hiding
-// the shape of the curve.
-func (m *Model) historyGraph(w, h int, mt model.Metric) []string {
-	h = min(h, 10)
-	if h < minGraphRows {
+// Columns rather than a curve: a temperature holds, so the shape of the series
+// is a staircase, and a staircase drawn as columns is straight up and down where
+// a curve leans between the samples. Dense rather than sparse: the fill lights
+// every dot of every cell it reaches, two across and four down, so the plot
+// reads as a solid textured shape rather than a line drawn through mostly empty
+// cells.
+func (m *Model) columnGraph(w, h int, mt model.Metric) []string {
+	if w <= 0 || h < minGraphRows {
 		return nil
 	}
 	return RenderGraph(m.Values(mt.ID), GraphOptions{
 		Width: w, Height: h,
 		Min: mt.Min, Max: mt.Max,
-		Fill:  false,
-		Thick: 2,
-		Warn:  mt.Warn,
-		Crit:  mt.Crit,
+		Fill:    true,
+		Columns: true,
+		Dots:    true,
+		Warn:    mt.Warn,
+		Crit:    mt.Crit,
 	}, m.th)
+}
+
+// panelBody lays out a panel that has one important number in it.
+//
+// The history graph runs down the far left against the border, where it can use
+// the full height of the panel and be read without looking away from the figure.
+// The level bar and the figure sit to its right, and the thresholds run along
+// the bottom. The graph does not also go under the figure: that would squeeze
+// the figure into a corner and leave the graph a quarter of the panel it is the
+// reason for.
+func (m *Model) panelBody(innerW, innerH int, mt model.Metric, caption string, below []string) []string {
+	if innerW < 8 || innerH < 2 {
+		return nil
+	}
+
+	const gap = 2
+	// A bit over a third of the panel: enough for a readable plot, and it
+	// leaves the figure room to stay a figure.
+	graphW := clampInt(innerW*38/100, 10, 46)
+	rightW := innerW - graphW - gap
+	if rightW < 24 {
+		// Too narrow for both. The figure wins: it is the reading.
+		graphW, rightW = 0, innerW
+	}
+
+	rows := make([]string, innerH)
+	for i := range rows {
+		rows[i] = strings.Repeat(" ", graphW+gap)
+	}
+
+	if graphW > 0 {
+		for i, line := range m.columnGraph(graphW, innerH-1, mt) {
+			rows[i] = padLine(line, graphW) + strings.Repeat(" ", gap)
+		}
+	}
+
+	right, _ := m.headline(rightW, mt, caption, innerH-1-len(below))
+	for i, line := range right {
+		if i >= len(rows) {
+			break
+		}
+		rows[i] += padLine(line, rightW)
+	}
+	for i, line := range below {
+		idx := len(right) + i
+		if idx >= len(rows)-1 {
+			break
+		}
+		rows[idx] += padLine(line, rightW)
+	}
+
+	rows[len(rows)-1] = m.footer(innerW, mt)
+	return rows
 }
 
 // footer is the bottom line of a panel: what the number above it is judged
@@ -408,51 +422,12 @@ func (m *Model) footer(w int, mt model.Metric) string {
 	return padLine(strings.Join(parts, m.th.Style(m.th.Dim).Render("   ")), w)
 }
 
-// moreRow says how many sensors did not fit, because a silently truncated list
-// reads as "this machine only has three temperatures".
-func (m *Model) moreRow(missing, w int) string {
-	if missing <= 0 || m.showAllSensors {
-		return ""
-	}
-	return m.th.Style(m.th.Dim).Render(
-		truncate(fmt.Sprintf("+%d more (a shows all)", missing), w))
-}
-
-// cpuDetail returns the CPU's individual temperature sensors, ordered so the
-// package sensor comes first and the hottest core next.
-func (m *Model) cpuDetail() []model.Metric {
-	var out []model.Metric
-	for _, mt := range m.Snapshot().MetricsByCategory(model.CategorySensor) {
-		if mt.Kind != model.KindTemperature || !sensors.IsCPUChip(mt.Group) {
-			continue
-		}
-		out = append(out, mt)
-	}
-	if m.showAllSensors {
-		sortCPUTemps(out)
-		return out
-	}
-	return budgetTemps(out, 8)
-}
-
-// sortCPUTemps orders CPU sensors with the package first, then hottest first,
-// so the graph order is stable but still puts the interesting one on top.
-func sortCPUTemps(ms []model.Metric) {
-	sort.SliceStable(ms, func(i, j int) bool {
-		pi, pj := isPackageLabel(ms[i].Label), isPackageLabel(ms[j].Label)
-		if pi != pj {
-			return pi
-		}
-		return ms[i].Value > ms[j].Value
-	})
-}
-
-// budgetTemps keeps the package sensor plus the hottest of the rest, capped at
-// n entries.
+// budgetTemps keeps the package sensor plus the hottest of the rest, capped at n.
 //
-// The cap matters on a 32-core machine, where every core has its own channel:
-// showing all of them turns the CPU panel into a wall of identical graphs and
-// pushes everything else off the screen.
+// The cap matters on a board with dozens of channels, where showing every one of
+// them turns the panel into a wall of identical graphs and pushes everything
+// else off the screen. The package sensor is never dropped: it is the one that
+// says what the part as a whole is doing.
 func budgetTemps(in []model.Metric, n int) []model.Metric {
 	if len(in) <= n {
 		return in
@@ -476,10 +451,48 @@ func budgetTemps(in []model.Metric, n int) []model.Metric {
 	return out
 }
 
+// isPackageLabel reports whether a label names a part rather than one of its
+// internals: the package sensor, the die sensor, or a controller's own reading
+// of the CPU.
 func isPackageLabel(l string) bool {
 	l = strings.ToLower(l)
 	return strings.Contains(l, "package") || strings.Contains(l, "tdie") ||
-		strings.Contains(l, "tctl") || strings.Contains(l, "tctl/tdie")
+		strings.Contains(l, "tctl") || strings.Contains(l, "peci")
+}
+
+// moreRow says how many sensors did not fit, because a silently truncated list
+// reads as "this machine only has three temperatures".
+func (m *Model) moreRow(missing, w int) string {
+	if missing <= 0 || m.showAllSensors {
+		return ""
+	}
+	return m.th.Style(m.th.Dim).Render(
+		truncate(fmt.Sprintf("+%d more (a shows all)", missing), w))
+}
+
+// cpuContent draws the CPU panel: the average across every CPU temperature
+// sensor as a large figure, its history as a wide graph beneath it, and the
+// thresholds it is judged against along the bottom.
+//
+// The big number is the headline because a 32-core machine has 33 temperature
+// channels and the user wants one figure that says "how hot is my CPU". The
+// detail graphs below it are still there, for the moment when the average is
+// not enough - finding the one core running 15 degrees hotter than its
+// neighbours.
+func (m *Model) cpuContent(innerW, innerH int) []string {
+	if innerW < 8 {
+		return nil
+	}
+	mt, ok := m.Metric(collect.MetricCPUTemp)
+	if !ok {
+		return []string{m.th.Style(m.th.Dim).Render("no CPU temperature sensors exposed")}
+	}
+
+	// One number and its history. The individual cores are deliberately not
+	// listed: on a 32 core machine that is 32 rows of near-identical numbers,
+	// and the average is the figure that answers the question the panel was
+	// opened to ask.
+	return m.panelBody(innerW, innerH, mt, "temp", nil)
 }
 
 // gpuContent draws the GPU panel: one graph covering every readable card, then
@@ -500,15 +513,13 @@ func (m *Model) gpuContent(innerW, innerH int) []string {
 		return []string{m.th.Style(m.th.Dim).Render("no GPU temperature sensors")}
 	}
 
-	// One row is reserved per card: every card has to stay visible, so the
-	// graph gives way to them rather than the other way round.
-	rows, _ := m.headline(innerW, mt, "temp", innerH-len(devs)-minGraphRows-1)
-	rows = append(rows, m.historyGraph(innerW, innerH-len(rows)-len(devs)-1, mt)...)
+	// One row per card, under the figure. Every card stays visible: a card that
+	// silently dropped out of the panel looks exactly like a hardware fault.
+	below := make([]string, 0, len(devs))
 	for _, d := range devs {
-		rows = append(rows, m.gpuLine(d, innerW))
+		below = append(below, m.gpuLine(d, innerW))
 	}
-	rows = append(rows, m.footer(innerW, mt))
-	return rows
+	return m.panelBody(innerW, innerH, mt, "temp", below)
 }
 
 // gpuLine renders one GPU as a single row: name, temperature, and whichever
@@ -553,13 +564,10 @@ func (m *Model) fanContent(innerW, innerH int) []string {
 	}
 
 	// The average, the same shape as the CPU panel. The individual fans are not
-	// listed here either: a case has eight of them and they all sit within a
-	// few hundred RPM of each other, so the average is the figure that says
-	// whether the cooling is keeping up.
-	rows, _ := m.headline(innerW, mt, "fan", innerH-minGraphRows-1)
-	rows = append(rows, m.historyGraph(innerW, innerH-len(rows)-1, mt)...)
-	rows = append(rows, m.footer(innerW, mt))
-	return rows
+	// listed: a case has eight of them and they all sit within a few hundred
+	// RPM of each other, so the average is the figure that says whether the
+	// cooling is keeping up.
+	return m.panelBody(innerW, innerH, mt, "fan", nil)
 }
 
 // driveContent draws one temperature graph per drive, with the drive's
@@ -614,10 +622,12 @@ func (m *Model) driveContent(innerW, innerH int) []string {
 		rows = append(rows, RenderGraph(m.Values(d.temp.ID), GraphOptions{
 			Width: innerW, Height: graphH,
 			Min: d.temp.Min, Max: d.temp.Max,
-			Fill:  false,
-			Warn:  d.temp.Warn,
-			Crit:  d.temp.Crit,
-			Label: name,
+			Fill:    true,
+			Columns: true,
+			Dots:    true,
+			Warn:    d.temp.Warn,
+			Crit:    d.temp.Crit,
+			Label:   name,
 			// WithUnits: a drive's rows are labelled by the kernel's own
 			// channel names, which say nothing about the quantity, so the
 			// number has to say it is a temperature.
@@ -756,11 +766,13 @@ func (m *Model) tempGrid(w, availRows int, temps []model.Metric, withUnits bool)
 			block = append(block, RenderGraph(m.Values(mt.ID), GraphOptions{
 				Width: min(cellW, w), Height: cellH - 1,
 				Min: mt.Min, Max: mt.Max,
-				Fill:  false,
-				Warn:  mt.Warn,
-				Crit:  mt.Crit,
-				Label: mt.Label,
-				Value: readout(mt, withUnits),
+				Fill:    true,
+				Columns: true,
+				Dots:    true,
+				Warn:    mt.Warn,
+				Crit:    mt.Crit,
+				Label:   mt.Label,
+				Value:   readout(mt, withUnits),
 			}, m.th)...)
 			block = append(block, "") // one blank row between graphs
 		}

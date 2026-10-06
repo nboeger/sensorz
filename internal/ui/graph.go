@@ -35,6 +35,24 @@ type GraphOptions struct {
 	// Thick draws the trace as a band of dot rows rather than a single row, so
 	// a wide graph still reads as a line at a glance.
 	Thick int
+	// Columns drops the line joining the samples and leaves the fill, which
+	// draws the series as vertical columns standing on the baseline instead of
+	// as a curve across the panel.
+	//
+	// A column is straight up and down where a curve leans, and for a level
+	// that is what the data is: a temperature holds, and the shape of a series
+	// that holds is a staircase, not a slope.
+	Columns bool
+	// Dots renders a lit cell as a dot matrix rather than as the exact set of
+	// dots the plot put there.
+	//
+	// A cell whose eight dots are all lit is a solid block, and a column chart
+	// of solid blocks is a rectangle: the shape is there but the texture is
+	// gone, and a series that holds looks like a wall rather than a plateau.
+	// Intersecting with a dot pattern keeps the shape and gives every filled
+	// cell the same texture, so a steady series reads as a textured plateau and
+	// a moving one as a stepped edge.
+	Dots bool
 }
 
 // RenderGraph draws one series into exactly Height rows of Width cells.
@@ -56,7 +74,11 @@ func RenderGraph(values []float64, o GraphOptions, th Theme) []string {
 	}
 
 	grid := NewGrid(o.Width, o.Height)
-	Plot(grid, values, lo, hi, PlotStyle{Fill: o.Fill, DrawLine: true, Thick: o.Thick})
+	Plot(grid, values, lo, hi, PlotStyle{
+		Fill:     o.Fill,
+		DrawLine: !o.Columns,
+		Thick:    o.Thick,
+	})
 
 	labelColor := th.Ramp(latestOf(values), o.Warn, o.Crit)
 	labelStyle := lipgloss.NewStyle().Foreground(labelColor).Bold(true)
@@ -155,7 +177,11 @@ func paintRow(grid *Grid, y int, row string, o GraphOptions, th Theme, lineColor
 		if v := columnValue(grid, x, y, o, len(runes)); !math.IsNaN(v) {
 			color = th.Ramp(v, o.Warn, o.Crit)
 		}
-		b.WriteString(lipgloss.NewStyle().Foreground(color).Render(string(runes[x])))
+		cell := runes[x]
+		if o.Dots {
+			cell = brailleRunes[grid.cells[y*w+x]&barDots]
+		}
+		b.WriteString(lipgloss.NewStyle().Foreground(color).Render(string(cell)))
 	}
 	return b.String()
 }
