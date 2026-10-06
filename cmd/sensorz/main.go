@@ -23,7 +23,7 @@ import (
 // version is the release this binary was built from. It is a variable rather
 // than a constant so it can be stamped at build time with
 // -ldflags "-X main.version=$(git describe --tags)".
-var version = "1.0"
+var version = "1.1"
 
 func main() {
 	if err := run(); err != nil {
