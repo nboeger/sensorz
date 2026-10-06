@@ -190,6 +190,27 @@ easiest way to see what changed without a terminal to hand:
 ```sh
 SENSORZ_SHOT=1 go test ./internal/ui -run TestScreenshot   # writes /tmp/view.ansi
 ```
+## Publishing
+
+The `.github/workflows/snap.yml` workflow builds a `snap` package and publishes
+it to the Snap Store. It runs on any tag (`v1.0`, `v0.2.0`, ...). The workflow needs
+the `SNAPCRAFT_STORE_CREDENTIALS` secret (from `snapcraft export-login`).
+
+Building locally:
+
+```sh
+snapcraft --destructive-mode
+sudo snap install --dangerous --classic sensorz_1.0_amd64.snap
+```
+
+The `snapcraft.yaml` uses `confinement: classic` because a strict `core22` snap
+cannot bind `/sys/class/hwmon` or load `libnvidia-ml.so.1` at runtime. A classic
+snap has the same host access the installed binary has: it reads `/sys` through
+the kernel's own ABI, makes no network connections, writes nothing, and exits on
+`q`. That is the only confinement mode that lets a thermal monitor see the
+hardware.
+
+
 
 ## Layout
 

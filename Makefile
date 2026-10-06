@@ -5,7 +5,7 @@
 
 BINARY  := sensorz
 PKG     := ./cmd/sensorz
-VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+VERSION ?= $(shell sed -n "3s/version: *//p" snap/snapcraft.yaml 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X main.version=$(VERSION)
 
 # The Go toolchain is not always on PATH: a gvm or asdf install puts it in a

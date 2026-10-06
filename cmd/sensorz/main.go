@@ -23,7 +23,7 @@ import (
 // version is the release this binary was built from. It is a variable rather
 // than a constant so it can be stamped at build time with
 // -ldflags "-X main.version=$(git describe --tags)".
-var version = "0.1.0-dev"
+var version = "1.0"
 
 func main() {
 	if err := run(); err != nil {
@@ -40,10 +40,11 @@ func run() error {
 		showAll     = flag.Bool("all-sensors", false, "show every hwmon channel, not just the important ones")
 		listSensors = flag.Bool("list-sensors", false, "print the detected sensors and exit")
 		showVersion = flag.Bool("version", false, "print the version and exit")
+		showV      = flag.Bool("v", false, "print the version and exit (shorthand)")
 	)
 	flag.Parse()
 
-	if *showVersion {
+	if *showVersion || *showV {
 		fmt.Println("sensorz", version)
 		return nil
 	}
