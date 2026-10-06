@@ -378,8 +378,8 @@ func (m *Model) footer(w int, mt model.Metric) string {
 	}
 	if mt.Warn > 0 && mt.Crit > 0 {
 		parts = append(parts,
-			m.th.Style(m.th.Warn).Render(fmt.Sprintf("warn %.1f\u00b0", mt.Warn)),
-			m.th.Style(m.th.Bad).Render(fmt.Sprintf("crit %.1f\u00b0", mt.Crit)))
+			m.th.Style(m.th.Warn).Render(fmt.Sprintf("warn %.1f\u00b0C", mt.Warn)),
+			m.th.Style(m.th.Bad).Render(fmt.Sprintf("crit %.1f\u00b0C", mt.Crit)))
 	}
 	return padLine(strings.Join(parts, m.th.Style(m.th.Dim).Render("   ")), w)
 }
@@ -594,13 +594,16 @@ func (m *Model) driveContent(innerW, innerH int) []string {
 			Warn:  d.temp.Warn,
 			Crit:  d.temp.Crit,
 			Label: name,
-			Value: model.FormatValueCompact(d.temp.Kind, d.temp.Value),
+			// WithUnits: a drive's rows are labelled by the kernel's own
+			// channel names, which say nothing about the quantity, so the
+			// number has to say it is a temperature.
+			Value: readout(*d.temp, true),
 		}, m.th)...)
 		if showExtras && len(d.extras) > 0 {
 			parts := make([]string, 0, len(d.extras))
 			for _, e := range d.extras {
-				parts = append(parts, m.th.Style(m.th.Color(e.Value, e.Warn, e.Crit)).
-					Render(e.Group+" "+model.FormatValueCompact(e.Kind, e.Value)+"°"))
+				parts = append(parts, m.th.Style(m.th.Ramp(e.Value, e.Warn, e.Crit)).
+					Render(e.Group+" "+readout(e, true)))
 			}
 			rows = append(rows, m.th.Style(m.th.Dim).Render(truncate(strings.Join(parts, "  "), innerW)))
 		}

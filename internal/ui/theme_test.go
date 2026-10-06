@@ -150,3 +150,22 @@ func colorCodes(s string) []string {
 	}
 	return out
 }
+
+// Every box wears the same hue. Two colours across the chrome reads as two
+// kinds of thing on screen, and the only colour that should mean anything is
+// the one a reading is drawn in.
+func TestAllPanelsShareOneHue(t *testing.T) {
+	th := DefaultTheme()
+	panels := map[string]lipgloss.AdaptiveColor{
+		"CPU":    th.PanelCPU,
+		"GPU":    th.PanelGPU,
+		"Fans":   th.PanelFans,
+		"Drives": th.PanelDrives,
+		"Board":  th.PanelBoard,
+	}
+	for name, c := range panels {
+		if c != th.PanelFans {
+			t.Errorf("the %s panel is drawn in %v, want the same hue as the fan panel (%v)", name, c, th.PanelFans)
+		}
+	}
+}

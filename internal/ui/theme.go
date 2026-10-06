@@ -57,9 +57,12 @@ func DefaultTheme() Theme {
 	// Both hues are desaturated and darkened on purpose. A saturated green is
 	// an alarm, and this dashboard spends most of its time showing readings
 	// that are fine; the box colours are structure, not status, and the status
-	// is carried by the reading's own colour. So: a dark pale green for the
-	// compute boxes, a dark pale purple for everything else.
-	green := lipgloss.AdaptiveColor{Light: "#4d6b38", Dark: "#79a86a"}
+	// is carried by the reading's own colour.
+	//
+	// Every box wears the same dark pale purple. One hue for the whole
+	// dashboard keeps the chrome out of the way: the eye should find the
+	// reading, not the frame around it, and the only colour on screen that
+	// means anything is the one the reading is drawn in.
 	purple := lipgloss.AdaptiveColor{Light: "#56456a", Dark: "#8f7fb0"}
 
 	return Theme{
@@ -69,10 +72,10 @@ func DefaultTheme() Theme {
 		Value:  lipgloss.AdaptiveColor{Light: "#2a2a2a", Dark: "#f2f2f2"},
 		Dim:    lipgloss.AdaptiveColor{Light: "#9a9a9a", Dark: "#8a8a8a"},
 
-		PanelCPU:    green,
-		PanelGPU:    green,
+		PanelCPU:    purple,
+		PanelGPU:    purple,
 		PanelFans:   purple,
-		PanelDrives: green,
+		PanelDrives: purple,
 		PanelBoard:  purple,
 
 		Good: lipgloss.AdaptiveColor{Light: "#4d6b38", Dark: "#79a86a"},

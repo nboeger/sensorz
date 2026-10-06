@@ -140,3 +140,36 @@ func TestHeightBudget(t *testing.T) {
 		t.Errorf("view has %d lines for a 40 row terminal", len(lines))
 	}
 }
+
+// A reading with its unit is a reading a reader can identify. These rows are
+// labelled by the kernel's own channel names - SYSTIN, Sensor 2, nvme0n1 -
+// which say nothing about the quantity, so the number has to say it is a
+// temperature itself.
+func TestTemperaturesCarryTheirUnit(t *testing.T) {
+	mt := model.Metric{Kind: model.KindTemperature, Value: 42}
+	if got := readout(mt, true); got != "42°C" {
+		t.Errorf("temperature readout = %q, want 42°C", got)
+	}
+	if got := readout(mt, false); got != "42" {
+		t.Errorf("compact readout = %q, want the bare number", got)
+	}
+
+	fan := model.Metric{Kind: model.KindFan, Value: 1950}
+	if got := readout(fan, true); !strings.Contains(got, "RPM") {
+		t.Errorf("fan readout = %q, want it to carry RPM", got)
+	}
+}
+
+// The thresholds under a figure are temperatures too, and a lone degree sign
+// is not a unit.
+func TestFooterThresholdsCarryTheirUnit(t *testing.T) {
+	m := buildLive(t, 120, 40, 1)
+	mt, ok := m.Metric(collect.MetricCPUTemp)
+	if !ok {
+		t.Skip("no CPU temperature on this machine")
+	}
+	footer := stripANSI(m.footer(80, mt))
+	if !strings.Contains(footer, "°C") {
+		t.Errorf("footer %q does not carry a unit", footer)
+	}
+}
