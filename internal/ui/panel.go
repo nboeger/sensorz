@@ -7,17 +7,20 @@ import (
 	"github.com/mattn/go-runewidth"
 )
 
-// asciiBorder draws a panel with plain ASCII lines.
+// panelBorder draws a panel the way btop does: solid continuous rules in the
+// horizontal and a single line down each side, with no corner glyphs at all.
 //
-// Not box drawing: those are a separate Unicode block, and a terminal or font
-// without them draws every horizontal and vertical line as a bracket, which
-// turns a row of panels into a row of "[[[". ASCII always renders, and it is
-// the same shape btop's panels have once the terminal has sorted the glyphs out.
-var asciiBorder = lipgloss.Border{
-	Top:         "-",
-	Bottom:      "-",
-	Left:        "|",
-	Right:       "|",
+// The rules are drawn with the box-drawing line characters rather than ASCII
+// dashes. A row of '-' is not a line, it is a row of dashes with a gap at every
+// cell boundary, which is what makes ASCII borders look broken next to the
+// solid rules btop draws. The corners are left out deliberately: they are the
+// part of the block a font is most likely to be missing, and a box with no
+// corners is exactly as readable as one with them.
+var panelBorder = lipgloss.Border{
+	Top:         "\u2500", // ─
+	Bottom:      "\u2500",
+	Left:        "\u2502", // │
+	Right:       "\u2502",
 	TopLeft:     "",
 	TopRight:    "",
 	BottomLeft:  "",
@@ -79,7 +82,7 @@ func (p *Panel) Render(content []string) string {
 
 	border := p.borderColor()
 	box := lipgloss.NewStyle().
-		Border(asciiBorder).
+		Border(panelBorder).
 		BorderForeground(border).
 		Width(innerW).
 		Height(innerH)
@@ -126,7 +129,7 @@ func (p *Panel) injectTitle(rendered string) string {
 		return rendered
 	}
 	dashes := total
-	const fill = '-'
+	const fill = '\u2500' // the same solid rule lipgloss drew the sides with
 
 	title := truncate(p.Title, dashes-2)
 	if title == "" {

@@ -33,6 +33,49 @@ func TestBigNumberGeometry(t *testing.T) {
 	}
 }
 
+// The half-height figure has to be exactly as wide as the full one and half as
+// tall, or the panel border stops lining up where the figure sits.
+func TestBigNumberHalfIsHalfAsTall(t *testing.T) {
+	full := BigNumber("78°C", 1)
+	half := BigNumberHalf("78°C", 1)
+	if len(half) >= len(full) {
+		t.Errorf("half figure is %d rows, full is %d: it must be shorter", len(half), len(full))
+	}
+	if want := (bigGlyphHeight + 1) / 2; len(half) != want {
+		t.Errorf("half figure has %d rows, want %d", len(half), want)
+	}
+	for i, r := range half {
+		if got := lipgloss.Width(r); got != BigNumberWidth("78°C", 1) {
+			t.Errorf("half row %d is %d cells, want %d", i, got, BigNumberWidth("78°C", 1))
+		}
+	}
+	// Two pixel rows share a cell, so the figure has to be drawing both of the
+	// half-block glyphs and not just the top half of every digit.
+	joined := strings.Join(half, "")
+	if !strings.ContainsAny(joined, string(bigUpper)+string(bigLower)) {
+		t.Error("half figure never used a half-block glyph; the pixels are not being packed")
+	}
+	// The lit pixels of the half figure must match the lit pixels of the full
+	// one, or "78" would come out as some other pair of digits.
+	if litPixels(half) == 0 || litPixels(half) >= litPixels(full) {
+		t.Errorf("half figure lit %d pixels, full lit %d: the packing lost or invented pixels",
+			litPixels(half), litPixels(full))
+	}
+}
+
+// litPixels counts the cells of a figure that are drawn rather than blank.
+func litPixels(rows []string) int {
+	n := 0
+	for _, r := range rows {
+		for _, c := range r {
+			if c != ' ' {
+				n++
+			}
+		}
+	}
+	return n
+}
+
 // An unknown rune must render as blank space, never as a box: a missing degree
 // sign would otherwise turn the headline number into a row of tofu.
 func TestBigNumberUnknownRunesAreBlank(t *testing.T) {

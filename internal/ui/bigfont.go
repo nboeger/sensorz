@@ -49,17 +49,49 @@ const bigGlyphHeight = 5
 // and joins up with its neighbours, which a thin mark would not.
 const bigPixel = '█'
 
-// BigNumber renders text as a blocky display figure, returned as rows.
+// The half-block glyphs each carry two pixel rows: the upper block is the top
+// pixel, the lower block the bottom one, and the full block both.
+const (
+	bigUpper = '\u2580' // ▀
+	bigLower = '\u2584' // ▄
+)
+
+// BigNumber renders text as a blocky display figure, returned as rows, one
+// cell per pixel row.
 //
 // scale is how many cells wide each pixel is, so scale 2 draws every pixel as a
 // two cell run and makes the figure twice as wide. Unknown runes render as
 // blanks rather than as boxes, so an unexpected degree sign or multiplication
 // sign cannot turn the headline number into a row of tofu.
 func BigNumber(text string, scale int) []string {
+	return bigNumber(text, scale, false)
+}
+
+// BigNumberHalf renders the same figure at half height.
+//
+// Two pixel rows are packed into one cell with the half-block glyphs, which is
+// how a terminal gets a display figure small enough to sit above a graph
+// without eating the panel. It is half the height of BigNumber at the same
+// width and at the same scale, so a figure that is too tall gets shorter
+// rather than smaller.
+func BigNumberHalf(text string, scale int) []string {
+	return bigNumber(text, scale, true)
+}
+
+func bigNumber(text string, scale int, half bool) []string {
 	if scale < 1 {
 		scale = 1
 	}
-	var rows [bigGlyphHeight]strings.Builder
+
+	height := bigGlyphHeight
+	if half {
+		// Pixel rows come in pairs, and an odd row gets an empty partner.
+		height = (bigGlyphHeight + 1) / 2
+	}
+
+	// Build the pixels first: one string per pixel row, then pack them into
+	// cells. Working in pixels keeps both renderers down to the same loop.
+	pixels := make([]strings.Builder, bigGlyphHeight)
 	for i, r := range text {
 		glyph, ok := bigFont[r]
 		if !ok {
@@ -68,21 +100,52 @@ func BigNumber(text string, scale int) []string {
 		for y, line := range glyph {
 			for _, px := range line {
 				if px == '1' {
-					rows[y].WriteString(strings.Repeat(string(bigPixel), scale))
+					pixels[y].WriteString(strings.Repeat(string(bigPixel), scale))
 				} else {
-					rows[y].WriteString(strings.Repeat(" ", scale))
+					pixels[y].WriteString(strings.Repeat(" ", scale))
 				}
 			}
 		}
 		// A one cell gap between glyphs, so adjacent figures do not merge into
 		// one block at a glance.
 		if i < len(text)-1 {
-			for y := range rows {
+			for y := range pixels {
+				pixels[y].WriteByte(' ')
+			}
+		}
+	}
+
+	rows := make([]strings.Builder, height)
+	for y := 0; y < height; y++ {
+		if !half {
+			rows[y].WriteString(pixels[y].String())
+			continue
+		}
+		top, bottom := pixels[y*2].String(), ""
+		if y*2+1 < bigGlyphHeight {
+			bottom = pixels[y*2+1].String()
+		}
+		// Index by rune, not by byte: a lit pixel is a three byte block
+		// character, so counting bytes would land in the middle of one and
+		// read its second byte as an empty pixel.
+		topRunes, bottomRunes := []rune(top), []rune(bottom)
+		for c := 0; c < len(topRunes); c++ {
+			hasTop := c < len(topRunes) && topRunes[c] == bigPixel
+			hasBottom := c < len(bottomRunes) && bottomRunes[c] == bigPixel
+			switch {
+			case hasTop && hasBottom:
+				rows[y].WriteRune(bigPixel)
+			case hasTop:
+				rows[y].WriteRune(bigUpper)
+			case hasBottom:
+				rows[y].WriteRune(bigLower)
+			default:
 				rows[y].WriteByte(' ')
 			}
 		}
 	}
-	out := make([]string, bigGlyphHeight)
+
+	out := make([]string, height)
 	for i := range rows {
 		out[i] = rows[i].String()
 	}

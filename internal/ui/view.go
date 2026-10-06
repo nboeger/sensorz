@@ -153,7 +153,7 @@ func (m *Model) header(w int) string {
 		if n < 1 {
 			return " "
 		}
-		return rule.Render(strings.Repeat("-", n))
+		return rule.Render(strings.Repeat("\u2500", n))
 	}
 
 	fixed := lipgloss.Width(left) + lipgloss.Width(state) + lipgloss.Width(clock) + 6
@@ -167,7 +167,7 @@ func (m *Model) header(w int) string {
 
 	// The rule under the bar is the same thin line btop draws below its header,
 	// and the panels start immediately below it.
-	return head + "\n" + rule.Render(strings.Repeat("-", w))
+	return head + "\n" + rule.Render(strings.Repeat("\u2500", w))
 }
 
 // topRow renders the CPU and GPU temperature panels side by side. A machine
@@ -254,7 +254,9 @@ func (m *Model) cpuContent(innerW, innerH int) []string {
 		return []string{m.th.Style(m.th.Dim).Render("no CPU temperature sensors exposed")}
 	}
 
-	head, figureW := m.headline(innerW, mt, "temp")
+	// A graph is worth three rows on its own, so whatever the panel cannot give
+	// the graph comes out of the figure's surroundings.
+	head, figureW := m.headline(innerW, mt, "temp", innerH-minGraphRows-1)
 
 	// The space beside the big figure is not dead space: it is where the
 	// individual sensors go. A 32 core machine has 33 channels, and the moment
@@ -305,6 +307,11 @@ func joinSide(head, side []string, headW int) []string {
 	return out
 }
 
+// minGraphRows is the fewest rows a history graph is worth drawing in. Below
+// three the curve is unreadable, so the panel shows the number and the
+// thresholds instead of a graph that says nothing.
+const minGraphRows = 3
+
 // headline renders the panel's one important number: what is being measured,
 // the value as a large block figure, and its unit underneath.
 //
@@ -312,34 +319,36 @@ func joinSide(head, side []string, headW int) []string {
 // has one font size: the only way to make a number bigger is to draw it. The
 // unit goes below rather than beside, so the digits line up on the left edge
 // whatever the unit is.
-func (m *Model) headline(w int, mt model.Metric, caption string) (rows []string, figureW int) {
+func (m *Model) headline(w int, mt model.Metric, caption string, budget int) (rows []string, figureW int) {
 	color := m.th.Ramp(mt.Value, mt.Warn, mt.Crit)
 	style := m.th.Style(color).Bold(true)
 
-	rows = []string{
-		"",
-		m.th.Style(m.th.Label).Render(truncate(mt.Label, w)),
-		"",
-	}
-
-	// Two cells per pixel: wide enough to read as a display figure, short
-	// enough that a five row figure plus a unit still leaves room for a graph.
+	// Half size: one cell per pixel, with the pixel rows packed two to a cell
+	// by the half-block glyphs. A digit is three cells wide and three rows
+	// tall, which still reads as a display figure but leaves the panel for the
+	// graph, which is what the panel is actually for.
 	number := bigText(mt)
-	scale := 2
-	if BigNumberWidth(number, scale) > w {
-		scale = 1
-	}
-	if BigNumberWidth(number, scale) > w {
+	if BigNumberWidth(number, 1) > w {
 		number = bigDigits(mt)
 	}
-	for _, line := range BigNumber(number, scale) {
+
+	rows = []string{m.th.Style(m.th.Label).Render(truncate(mt.Label, w))}
+	// The air around the figure is the first thing to go: on a short panel the
+	// graph is worth more than the spacing, and a blank row is a row of
+	// history not shown.
+	if budget-len(rows) >= 5 {
+		rows = append(rows, "")
+	}
+	for _, line := range BigNumberHalf(number, 1) {
 		rows = append(rows, style.Render(line))
 	}
-	figureW = BigNumberWidth(number, scale)
-	rows = append(rows,
-		m.th.Style(m.th.Dim).Render(truncate(caption, w)),
-		"",
-	)
+	figureW = BigNumberWidth(number, 1)
+	if budget-len(rows) >= 2 {
+		rows = append(rows, m.th.Style(m.th.Dim).Render(truncate(caption, w)))
+	}
+	if budget-len(rows) >= 1 {
+		rows = append(rows, "")
+	}
 	return rows, figureW
 }
 
@@ -372,7 +381,7 @@ func bigDigits(mt model.Metric) string {
 // the shape of the curve.
 func (m *Model) historyGraph(w, h int, mt model.Metric) []string {
 	h = min(h, 10)
-	if h < 3 {
+	if h < minGraphRows {
 		return nil
 	}
 	return RenderGraph(m.Values(mt.ID), GraphOptions{
@@ -492,7 +501,9 @@ func (m *Model) gpuContent(innerW, innerH int) []string {
 		return []string{m.th.Style(m.th.Dim).Render("no GPU temperature sensors")}
 	}
 
-	rows, _ := m.headline(innerW, mt, "temp")
+	// One row is reserved per card: every card has to stay visible, so the
+	// graph gives way to them rather than the other way round.
+	rows, _ := m.headline(innerW, mt, "temp", innerH-len(devs)-minGraphRows-1)
 	rows = append(rows, m.historyGraph(innerW, innerH-len(rows)-len(devs)-1, mt)...)
 	for _, d := range devs {
 		rows = append(rows, m.gpuLine(d, innerW))
@@ -558,7 +569,7 @@ func (m *Model) fanContent(innerW, innerH int) []string {
 		listRows = (len(fans)+max(1, innerW/22)-1)/max(1, innerW/22) + 1
 	}
 
-	rows, _ := m.headline(innerW, mt, "fan")
+	rows, _ := m.headline(innerW, mt, "fan", innerH-listRows-minGraphRows-1)
 	rows = append(rows, m.historyGraph(innerW, innerH-len(rows)-listRows-1, mt)...)
 	rows = append(rows, m.fanRows(innerW, innerH-len(rows)-1, fans)...)
 	rows = append(rows, m.footer(innerW, mt))
