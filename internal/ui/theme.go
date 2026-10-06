@@ -45,21 +45,26 @@ type Theme struct {
 
 // DefaultTheme returns the palette sensorz ships with: btop's pale green for a
 // healthy reading, ramping through yellow to red as it nears the limit.
+//
+// Everything is deliberately pale. A saturated green on a black terminal reads
+// as an alarm, and this dashboard is mostly showing temperatures that are
+// perfectly fine; the colours have to stay quiet enough that the ones that do
+// mean something stand out.
 func DefaultTheme() Theme {
 	// Each colour needs a light and a dark variant: the light variant has to be
 	// dark enough to read on white, the dark one bright enough to read on
 	// black, so they are not simply inversions of each other.
-	green := lipgloss.AdaptiveColor{Light: "#4f7a1a", Dark: "#8ae234"}
-	purple := lipgloss.AdaptiveColor{Light: "#6a3f9e", Dark: "#c56cf0"}
-	blue := lipgloss.AdaptiveColor{Light: "#0f6a94", Dark: "#5fd7ff"}
+	green := lipgloss.AdaptiveColor{Light: "#5d8c22", Dark: "#a9dd72"}
+	blue := lipgloss.AdaptiveColor{Light: "#1f6b8c", Dark: "#8fcee6"}
+	purple := lipgloss.AdaptiveColor{Light: "#6f3f9c", Dark: "#cbaae8"}
 
 	return Theme{
-		Border:      lipgloss.AdaptiveColor{Light: "#b0b0b0", Dark: "#3a3a3a"},
-		BorderFocus: lipgloss.AdaptiveColor{Light: "#0087af", Dark: "#afd7ff"},
-		Title:       lipgloss.AdaptiveColor{Light: "#005f87", Dark: "#8ae9ff"},
-		Label:       lipgloss.AdaptiveColor{Light: "#5f5f5f", Dark: "#c8c8c8"},
-		Value:       lipgloss.AdaptiveColor{Light: "#1a1a1a", Dark: "#e6e6e6"},
-		Dim:         lipgloss.AdaptiveColor{Light: "#909090", Dark: "#6c6c6c"},
+		Border:      lipgloss.AdaptiveColor{Light: "#bcbcbc", Dark: "#4a4a4a"},
+		BorderFocus: lipgloss.AdaptiveColor{Light: "#0f7fa5", Dark: "#9fdcf0"},
+		Title:       lipgloss.AdaptiveColor{Light: "#0f6b8c", Dark: "#9fdcf0"},
+		Label:       lipgloss.AdaptiveColor{Light: "#6f6f6f", Dark: "#d4d4d4"},
+		Value:       lipgloss.AdaptiveColor{Light: "#2a2a2a", Dark: "#f2f2f2"},
+		Dim:         lipgloss.AdaptiveColor{Light: "#9a9a9a", Dark: "#8a8a8a"},
 
 		PanelCPU:    green,
 		PanelGPU:    green,
@@ -67,11 +72,11 @@ func DefaultTheme() Theme {
 		PanelDrives: green,
 		PanelBoard:  purple,
 
-		Good: lipgloss.AdaptiveColor{Light: "#4f7a1a", Dark: "#8ae234"},
-		Warn: lipgloss.AdaptiveColor{Light: "#9a7c00", Dark: "#fce94f"},
-		Bad:  lipgloss.AdaptiveColor{Light: "#af0000", Dark: "#ff5f5f"},
+		Good: lipgloss.AdaptiveColor{Light: "#5d8c22", Dark: "#a9dd72"},
+		Warn: lipgloss.AdaptiveColor{Light: "#a38600", Dark: "#ffe98a"},
+		Bad:  lipgloss.AdaptiveColor{Light: "#b8453f", Dark: "#ffa0a0"},
 
-		Accent: lipgloss.AdaptiveColor{Light: "#0087af", Dark: "#8ae9ff"},
+		Accent: lipgloss.AdaptiveColor{Light: "#0f7fa5", Dark: "#9fdcf0"},
 	}
 }
 

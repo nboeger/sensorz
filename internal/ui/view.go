@@ -129,36 +129,45 @@ func (m *Model) header(w int) string {
 	label := m.th.Style(m.th.Label)
 	value := m.th.Style(m.th.Value)
 
-	parts := []string{
+	left := strings.Join([]string{
 		label.Render("sensorz"),
 		value.Render(m.hostname()),
 		label.Render("gpu:" + m.gpuSummary(s)),
 		label.Render(fmt.Sprintf("up %s", humanDuration(time.Since(time.Unix(int64(bootTime()), 0))))),
-		value.Render(s.Time.Format("15:04:05")),
-	}
+	}, label.Render(" │ "))
 
 	state := ""
 	if m.paused {
 		state = m.th.Style(m.th.Bad).Bold(true).Render(" PAUSED ")
 	} else {
-		state = m.th.Style(m.th.Dim).Render(" every " + m.cfg.CollectInterval.String())
+		state = m.th.Style(m.th.Dim).Render(" " + m.cfg.CollectInterval.String())
 	}
 
-	left := strings.Join(parts, label.Render(" │ "))
-	right := state
-	// Two spaces on each side of the rule keep the status bar from reading as
-	// one long run of text.
-	gap := w - lipgloss.Width(left) - lipgloss.Width(right) - 2
-	if gap < 1 {
-		// Not enough room for both; the clock matters more than the state.
-		left = truncate(left, max(0, w-lipgloss.Width(right)-3))
-		gap = max(1, w-lipgloss.Width(left)-lipgloss.Width(right)-2)
+	// The layout is btop's: the facts on the left, the clock held in the middle
+	// on a rule of its own, and the update interval on the right. The clock sits
+	// between two rules rather than at the end because that is where the eye
+	// lands when it first reads a status bar.
+	clock := value.Render(s.Time.Format("15:04:05"))
+	rule := m.th.Style(m.th.Border)
+	fill := func(n int) string {
+		if n < 1 {
+			return " "
+		}
+		return rule.Render(strings.Repeat("─", n))
 	}
 
-	rule := m.th.Style(m.th.Border).Render(strings.Repeat("─", gap))
-	head := left + " " + rule + " " + right
+	fixed := lipgloss.Width(left) + lipgloss.Width(state) + lipgloss.Width(clock) + 6
+	spaces := w - fixed
+	if spaces < 3 {
+		// Too narrow for the full arrangement; the clock and the facts win.
+		spaces = max(3, w-lipgloss.Width(left)-lipgloss.Width(clock)-3)
+	}
+	head := " " + left + " " + fill(spaces/2) + " " + clock + " " + fill(spaces-spaces/2) + state + " "
 	head = truncateStyled(head, w)
-	return head + "\n" + m.th.Style(m.th.Border).Render(strings.Repeat("─", w))
+
+	// The rule under the bar is the same thin line btop draws below its header,
+	// and the panels start immediately below it.
+	return head + "\n" + rule.Render(strings.Repeat("─", w))
 }
 
 // topRow renders the CPU and GPU temperature panels side by side. A machine
@@ -171,7 +180,10 @@ func (m *Model) topRow(w, h int) string {
 		return cpu.Render(m.cpuContent(cpu.Inner()))
 	}
 
-	cpuW := int(float64(w) * 0.55)
+	// The CPU box is the wider one because its panel carries a graph per
+	// sensor, and a graph that is too narrow to hold a label and a number is
+	// not worth drawing.
+	cpuW := int(float64(w) * 0.62)
 	gpuW := w - cpuW - gap
 
 	cpu := NewPanel("CPU", cpuW, h, m.th, m.th.PanelCPU)
@@ -242,8 +254,10 @@ func (m *Model) cpuContent(innerW, innerH int) []string {
 		return []string{m.th.Style(m.th.Dim).Render("no CPU temperature sensors exposed")}
 	}
 
-	const graphH = 5
-	h := min(graphH, max(1, innerH))
+	// The headline graph takes a third of the panel, so a tall panel gets a
+	// tall graph rather than a tall gap: braille gives four dot rows per cell,
+	// so every extra row is four more lines of history visible at once.
+	h := clampInt(innerH/3, 5, 10)
 	rows = append(rows, RenderGraph(m.Values(mt.ID), GraphOptions{
 		Width: innerW, Height: h,
 		Min: mt.Min, Max: mt.Max,
@@ -362,8 +376,8 @@ func (m *Model) gpuContent(innerW, innerH int) []string {
 	if !ok {
 		return []string{m.th.Style(m.th.Dim).Render("no GPU temperature sensors")}
 	}
-	const graphH = 5
-	h := min(graphH, max(1, innerH-2))
+	// Room for one row per card below the graph.
+	h := clampInt(innerH-2-len(devs), 5, 10)
 	rows = append(rows, RenderGraph(m.Values(mt.ID), GraphOptions{
 		Width: innerW, Height: h,
 		Min: mt.Min, Max: mt.Max,
@@ -423,10 +437,9 @@ func (m *Model) fanContent(innerW, innerH int) []string {
 	if !ok {
 		return []string{m.th.Style(m.th.Dim).Render("no fan sensors found")}
 	}
-	const graphH = 5
 	// Leave room for the fan list below the graph: on a short panel the
 	// individual fans matter more than the shape of their average.
-	h := clampInt(innerH-3, 2, graphH)
+	h := clampInt(innerH/2, 4, 10)
 	rows = append(rows, RenderGraph(m.Values(mt.ID), GraphOptions{
 		Width: innerW, Height: h,
 		Min: mt.Min, Max: mt.Max,
@@ -649,10 +662,28 @@ func (m *Model) tempGrid(w, availRows int, temps []model.Metric) ([]string, int)
 	if len(temps) == 0 || w < 12 {
 		return nil, 0
 	}
-	// One graph plus the blank line under it. Five rows is enough for the
-	// label, the number and three rows of dots.
-	const cellW = 28
-	const cellH = 5
+	// One graph plus the blank line under it. Each cell is deliberately
+	// generous: braille puts two dots across and four down per cell, so a wider
+	// cell is twice the resolution of the same graph drawn smaller, which is
+	// what turns "a plain line" into a readable trend.
+	const cellW = 34
+	cellH := 7
+
+	// A graph needs all of its rows or it is not a graph: half a plot is a
+	// rectangle of empty cells, which looks like a broken sensor rather than a
+	// small one. So the cell shrinks whole or not at all, and when even the
+	// small cell will not fit the panel falls back to plain label-and-number
+	// rows, which is honest about what there is room for.
+	if availRows > 0 {
+		switch {
+		case availRows >= 7:
+			cellH = 7
+		case availRows >= 5:
+			cellH = 5
+		default:
+			return m.tempList(w, availRows, temps), len(temps)
+		}
+	}
 
 	cols := min(max(1, w/cellW), len(temps))
 	perCol := (len(temps) + cols - 1) / cols
@@ -721,6 +752,45 @@ func (m *Model) tempGrid(w, availRows int, temps []model.Metric) ([]string, int)
 		out = append(out, strings.Join(parts, ""))
 	}
 	return out, min(shown, len(temps))
+}
+
+// tempList renders temperatures as label-and-number rows, for panels too short
+// for graphs. It is the fallback, not the default: a number with no history is
+// still worth showing, but only when there is no room for the history.
+func (m *Model) tempList(w, availRows int, temps []model.Metric) []string {
+	const cellW = 20
+	cols := max(1, min(w/cellW, len(temps)))
+	rows := (len(temps) + cols - 1) / cols
+	truncated := 0
+	if availRows > 0 && rows > availRows {
+		truncated = len(temps) - availRows*cols
+		rows = availRows
+	}
+
+	out := make([]string, 0, rows)
+	for r := 0; r < rows; r++ {
+		var b strings.Builder
+		for c := 0; c < cols; c++ {
+			i := r*cols + c
+			if i >= len(temps) {
+				continue
+			}
+			mt := temps[i]
+			value := model.FormatValueCompact(mt.Kind, mt.Value)
+			cell := m.th.Style(m.th.Label).Render(truncate(mt.Label, cellW-lipgloss.Width(value)-2)) +
+				" " + m.th.Style(m.th.Ramp(mt.Value, mt.Warn, mt.Crit)).Render(value)
+			if pad := cellW - lipgloss.Width(cell); pad > 0 {
+				cell += strings.Repeat(" ", pad)
+			}
+			b.WriteString(cell)
+		}
+		line := b.String()
+		if r == rows-1 && truncated > 0 {
+			line += m.th.Style(m.th.Dim).Render(fmt.Sprintf("+%d", truncated))
+		}
+		out = append(out, line)
+	}
+	return out
 }
 
 // chipHeading renders the sub-heading above one chip's temperature graphs.

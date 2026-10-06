@@ -49,6 +49,12 @@ func (p *Panel) Inner() (w, h int) {
 
 // Render draws the panel around the given content.
 //
+// The corners are square, not rounded: rounded corners are a glyph further up
+// the box-drawing block, and a terminal or font without them falls back to
+// something that renders as a row of brackets. Square corners are also what
+// btop uses, so a dashboard with half a dozen panels stays a grid of boxes
+// rather than a grid of brackets.
+//
 // The content is padded rather than truncated when it is too short, so a panel
 // keeps its declared size and the grid of panels stays aligned; content that
 // is too tall is cut, because a graph that runs off the bottom of its panel
@@ -58,7 +64,7 @@ func (p *Panel) Render(content []string) string {
 
 	border := p.borderColor()
 	box := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
+		Border(lipgloss.NormalBorder()).
 		BorderForeground(border).
 		Width(innerW).
 		Height(innerH)
