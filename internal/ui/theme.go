@@ -98,6 +98,36 @@ func (t Theme) Color(value, warn, crit float64) lipgloss.AdaptiveColor {
 	}
 }
 
+// RampTo colours a reading by how much of its limit it is using, rather than by
+// where it sits between the warning point and the critical one.
+//
+// The two answer different questions. Ramp answers "is this reading hot yet",
+// which is what a graph of a series needs: a line that has never been near the
+// limit should not be yellow just because the absolute numbers are high. RampTo
+// answers "how much of the headroom is gone", which is what a level bar needs:
+// 64C on a part that dies at 97C is two thirds of the way to the wall, and the
+// bar should say so.
+//
+// The turn starts at half the limit rather than at the warning point, so a
+// reading at two thirds of its limit is already leaning yellow. A bar that stays
+// flat green until the last ten degrees tells the reader nothing while it is
+// still climbing.
+func (t Theme) RampTo(value, crit float64) lipgloss.AdaptiveColor {
+	if crit <= 0 {
+		// No limit to climb towards, so nothing to warn about.
+		return t.Good
+	}
+	r := value / crit
+	switch {
+	case r <= 0.5:
+		return t.Good
+	case r < 0.85:
+		return blend(t.Good, t.Warn, (r-0.5)/0.35)
+	default:
+		return blend(t.Warn, t.Bad, (r-0.85)/0.15)
+	}
+}
+
 // Ramp colours a reading by how close it is to the danger zone rather than in
 // three flat bands: pale green while there is room, warming through yellow as
 // the warning point comes into range, and red on the way to the critical

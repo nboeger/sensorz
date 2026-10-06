@@ -5,6 +5,8 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/nathan/sensorz/internal/model"
 )
 
 // GraphOptions configures how a series is rendered into panel rows.
@@ -74,6 +76,63 @@ func RenderGraph(values []float64, o GraphOptions, th Theme) []string {
 	return out
 }
 
+// barDots is the pattern a level bar is drawn with: two rows of two dots per
+// cell. A dot matrix, not a solid block, so a filled bar reads as a column of
+// little dots rather than as a rectangle of colour.
+const barDots = 0x33
+
+// levelBar draws a reading as a solid column of dots standing on the baseline.
+//
+// The height is the reading's share of its limit and the colour is how close
+// that share is to the limit: pale green while there is half the scale in hand,
+// warming through yellow, red at the critical point. It is a thermometer, not a
+// time series, which is the point of drawing it vertically - a bar next to a
+// number answers "how hot is it now" without the reader having to find the top
+// of a curve and trace it down to a scale that is not labelled.
+//
+// The unfilled part of the column is left as dim dots rather than blank, so the
+// full height of the bar reads as the scale and the filled part as the reading.
+func (m *Model) levelBar(w, h int, mt model.Metric) []string {
+	if w <= 0 || h <= 0 {
+		return nil
+	}
+
+	scale, color := mt.Crit, m.th.RampTo(mt.Value, mt.Crit)
+	if scale <= 0 {
+		// Nothing to climb towards - fan speed has no critical point - so the
+		// bar is scaled against the sensor's own ceiling and stays green,
+		// because more of a fan is not worse.
+		scale, color = mt.Max, m.th.Good
+	}
+	if scale <= 0 {
+		return nil
+	}
+
+	level := int(math.Round(clamp01(mt.Value/scale) * float64(h)))
+	dots := string(brailleRunes[barDots])
+
+	rows := make([]string, h)
+	for y := 0; y < h; y++ {
+		style := m.th.Style(m.th.Dim)
+		if y >= h-level {
+			style = m.th.Style(color)
+		}
+		rows[y] = style.Render(strings.Repeat(dots, w))
+	}
+	return rows
+}
+
+// clamp01 bounds a fraction to 0..1.
+func clamp01(v float64) float64 {
+	if v < 0 {
+		return 0
+	}
+	if v > 1 {
+		return 1
+	}
+	return v
+}
+
 // paintRow colours one rendered row of braille.
 //
 // The colour of a dot is the colour of the reading behind it, ramped from pale
@@ -101,14 +160,24 @@ func paintRow(grid *Grid, y int, row string, o GraphOptions, th Theme, lineColor
 	return b.String()
 }
 
-// columnValue approximates the data value behind a graph column, so the fill
-// can be coloured by that column's reading. It reads the highest lit dot in the
-// column, which is the curve at that x.
+// columnValue approximates the reading behind one column of the plot, so each
+// dot can be coloured by the value at its own x rather than by the value at the
+// end of the series.
+//
+// It walks down from the top of the column and returns at the first dot it
+// finds, which for a line plot is the curve. The search covers the whole column
+// height rather than one row: the curve at this x may be in any of the four dot
+// rows of this cell, or in a cell above, and a dot that cannot find its own value
+// falls back to the series' latest colour, which is how a rising line ends up
+// uniformly the colour of its right hand end.
 func columnValue(grid *Grid, x, y int, o GraphOptions, rowLen int) float64 {
-	for dotY := y * brailleRows; dotY < (y+1)*brailleRows; dotY++ {
-		if grid.dotsSet(x, dotY) {
-			t := 1 - float64(dotY)/float64(max(1, grid.dotH-1))
-			return o.Min + t*(o.Max-o.Min)
+	// Both of the cell's dot columns, left to right.
+	for cx := x * brailleCols; cx < (x+1)*brailleCols && cx < grid.dotW; cx++ {
+		for dotY := 0; dotY < grid.dotH; dotY++ {
+			if grid.dotsSet(cx, dotY) {
+				t := 1 - float64(dotY)/float64(max(1, grid.dotH-1))
+				return o.Min + t*(o.Max-o.Min)
+			}
 		}
 	}
 	return math.NaN()

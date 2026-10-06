@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/muesli/termenv"
 )
 
 // The ramp is the whole point of the colour scheme: a reading has to move from
@@ -100,10 +99,7 @@ func stripANSI(s string) string {
 // pale green, the hot end red. Without this the graph would be a shape with no
 // temperature in it.
 func TestGraphDotsCarryTheRamp(t *testing.T) {
-	// Tests run without a terminal, where lipgloss strips colour entirely, so
-	// the profile has to be forced for there to be anything to assert on.
-	lipgloss.SetColorProfile(termenv.ANSI256)
-	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
+	forceColour(t)
 
 	th := DefaultTheme()
 	values := []float64{55, 60, 65, 70, 75, 80, 85, 90}
@@ -142,8 +138,11 @@ func colorCodes(s string) []string {
 			esc.WriteRune(r)
 			if r == 'm' {
 				inEsc = false
-				if code := strings.TrimSuffix(strings.TrimPrefix(esc.String(), "\x1b[38;2;"), "m"); code != esc.String() {
-					out = append(out, code)
+				// Only truecolour foregrounds count. A reset sequence is not a
+				// colour, and counting it would make every styled string look
+				// like it carried a colour of its own.
+				if code, ok := strings.CutPrefix(esc.String(), "\x1b[38;2;"); ok {
+					out = append(out, strings.TrimSuffix(code, "m"))
 				}
 			}
 		}
@@ -167,5 +166,38 @@ func TestAllPanelsShareOneHue(t *testing.T) {
 		if c != th.PanelFans {
 			t.Errorf("the %s panel is drawn in %v, want the same hue as the fan panel (%v)", name, c, th.PanelFans)
 		}
+	}
+}
+
+// The level ramp answers a different question from the graph ramp: not "is this
+// hot" but "how much of the headroom is gone". A reading at two thirds of its
+// limit must already be leaning yellow, or the bar says nothing while it is
+// still climbing.
+func TestRampToTracksTheLimit(t *testing.T) {
+	th := DefaultTheme()
+	const crit = 97.0
+
+	if got := th.RampTo(20, crit); got != th.Good {
+		t.Errorf("a cold reading is %v, want plain green", got)
+	}
+	if got := th.RampTo(crit, crit); got != th.Bad {
+		t.Errorf("a reading at the limit is %v, want red", got)
+	}
+	if got := th.RampTo(crit+20, crit); got != th.Bad {
+		t.Errorf("a reading past the limit is %v, want red", got)
+	}
+
+	// 64C on a part that dies at 97C: two thirds of the way, and already warm.
+	mid := th.RampTo(64, crit)
+	if mid == th.Good {
+		t.Errorf("64C on a 97C limit is plain green; the bar gives no warning while it climbs")
+	}
+	if mid == th.Bad {
+		t.Errorf("64C on a 97C limit is already red")
+	}
+
+	// A metric with no limit cannot be close to one.
+	if got := th.RampTo(5000, 0); got != th.Good {
+		t.Errorf("a reading with no limit is %v, want green", got)
 	}
 }

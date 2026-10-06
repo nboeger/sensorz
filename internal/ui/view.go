@@ -287,27 +287,51 @@ func (m *Model) headline(w int, mt model.Metric, caption string, budget int) (ro
 	// Half size: one cell per pixel, with the pixel rows packed two to a cell
 	// by the half-block glyphs. A digit is three cells wide and three rows
 	// tall, which still reads as a display figure but leaves the panel for the
-	// graph, which is what the panel is actually for.
+	// bar and the graph.
 	number := bigText(mt)
 	if BigNumberWidth(number, 1) > w {
 		number = bigDigits(mt)
 	}
+	figure := BigNumberHalf(number, 1)
+	figureW = BigNumberWidth(number, 1)
+
+	const (
+		barW   = 6
+		barGap = 2
+	)
 
 	rows = []string{center(m.th.Style(m.th.Label).Render(truncate(mt.Label, w)), w)}
-	// The air around the figure is the first thing to go: on a short panel the
+	// The air above the figure is the first thing to go: on a short panel the
 	// graph is worth more than the spacing, and a blank row is a row of
 	// history not shown.
 	if budget-len(rows) >= 5 {
 		rows = append(rows, "")
 	}
-	for _, line := range BigNumberHalf(number, 1) {
-		rows = append(rows, center(style.Render(line), w))
+
+	// The figure block is the number with its caption underneath. The bar is
+	// drawn at least as tall as that, and takes any rows left over as well: a
+	// four row bar cannot show where a reading sits on its scale, so the extra
+	// room goes to the bar rather than to air.
+	hasCaption := budget-len(rows) >= 2
+	blockH := len(figure)
+	if hasCaption {
+		blockH++
 	}
-	figureW = BigNumberWidth(number, 1)
-	if budget-len(rows) >= 2 {
-		rows = append(rows, center(m.th.Style(m.th.Dim).Render(truncate(caption, w)), w))
+	extra := clampInt(budget-len(rows)-blockH, 0, 4)
+	barH := blockH + extra
+	bar := m.levelBar(barW, barH, mt)
+
+	for i := 0; i < barH; i++ {
+		right := ""
+		switch {
+		case i < len(figure):
+			right = style.Render(figure[i])
+		case hasCaption && i == len(figure):
+			right = m.th.Style(m.th.Dim).Render(truncate(caption, w))
+		}
+		rows = append(rows, center(bar[i]+strings.Repeat(" ", barGap)+right, w))
 	}
-	if budget-len(rows) >= 1 {
+	if extra == 0 && budget-len(rows) >= 1 {
 		rows = append(rows, "")
 	}
 	return rows, figureW
