@@ -1,0 +1,9 @@
+scratch.md
+.scratch.md.swp
+
+# reference screenshots kept alongside the scratch notes
+screen*.png
+
+# build output
+/sensorz
+cmd/sensorz/sensorz
