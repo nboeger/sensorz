@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"fmt"
 	"math"
 
 	"github.com/charmbracelet/lipgloss"
@@ -127,130 +126,14 @@ func (t Theme) Ramp(value, warn, crit float64) lipgloss.AdaptiveColor {
 	}
 }
 
-// Brighten washes a colour toward white.
-//
-// The focused panel is drawn in a brightened version of its own hue rather than
-// in a fixed highlight colour: a box keeps the identity its colour gave it, and
-// the cursor is still obvious because it is the only bright box on screen.
+// Brighten washes a colour toward white. The focused panel is drawn in a
+// brightened version of its own hue, so a box keeps the identity its colour gave
+// it and the cursor is still the only bright box on screen.
 func (t Theme) Brighten(c lipgloss.AdaptiveColor, amount float64) lipgloss.AdaptiveColor {
-	white := lipgloss.AdaptiveColor{Light: "#ffffff", Dark: "#ffffff"}
-	return blend(c, white, amount)
+	return blend(c, lipgloss.AdaptiveColor{Light: "#ffffff", Dark: "#ffffff"}, amount)
 }
 
 // Style builds a lipgloss style in the given colour.
 func (t Theme) Style(c lipgloss.AdaptiveColor) lipgloss.Style {
 	return lipgloss.NewStyle().Foreground(c)
 }
-
-// meterFill is the solid part of a meter.
-const meterFill = '█'
-
-// meterTrack is the empty part of a meter: btop draws the unfilled remainder as
-// a row of dots, which reads as "there is room left" instead of as nothing.
-const meterTrack = '·'
-
-// Meter renders a horizontal bar of the given width for a 0..1 fill level, the
-// way btop draws them: solid blocks up to the level, then a dim dotted track to
-// the end of the cell.
-//
-// The last filled cell uses a partial block, so the bar is smooth at any width
-// rather than stepping in whole-cell increments.
-func Meter(width int, frac float64, th Theme, color lipgloss.AdaptiveColor) string {
-	if width <= 0 {
-		return ""
-	}
-	if frac < 0 {
-		frac = 0
-	}
-	if frac > 1 {
-		frac = 1
-	}
-
-	// Total bar capacity in eighths.
-	eighths := int(frac*float64(width)*8 + 0.5)
-	full := eighths / 8
-	rem := eighths % 8
-
-	if full >= width {
-		return th.Style(color).Render(repeatRune(meterFill, width))
-	}
-
-	filled := repeatRune(meterFill, full)
-	if rem > 0 && full < width {
-		filled += string(meterRunes[rem])
-		full++
-	}
-	track := strings_Repeat(meterTrack, width-full)
-	return th.Style(color).Render(filled) + th.Style(th.Dim).Render(track)
-}
-
-// SparkMeter renders a compact single-cell meter, the "▂▅▇" style indicator
-// btop puts next to a value.
-func SparkMeter(frac float64) string {
-	if frac < 0 {
-		frac = 0
-	}
-	if frac > 1 {
-		frac = 1
-	}
-	if frac == 0 {
-		return " "
-	}
-	return string(meterRunes[int(frac*8+0.5)])
-}
-
-func repeatRune(r rune, n int) string {
-	if n <= 0 {
-		return ""
-	}
-	buf := make([]rune, n)
-	for i := range buf {
-		buf[i] = r
-	}
-	return string(buf)
-}
-
-// strings_Repeat exists so Meter can build the dotted track without importing
-// strings into this file, which otherwise deals only in colours.
-func strings_Repeat(r rune, n int) string { return repeatRune(r, n) }
-
-// blend mixes two adaptive colours. Both variants are mixed, because the
-// dashboard is drawn on whatever background the terminal has and the
-// mid-tones have to stay readable on both.
-func blend(a, b lipgloss.AdaptiveColor, t float64) lipgloss.AdaptiveColor {
-	if t <= 0 {
-		return a
-	}
-	if t >= 1 {
-		return b
-	}
-	ar, ag, ab := parseHex(a.Dark)
-	br, bg, bb := parseHex(b.Dark)
-	mix := func(x, y uint8) uint8 { return uint8(float64(x)*(1-t) + float64(y)*t) }
-
-	lr, lg, lb := parseHex(a.Light)
-	mlr, mlg, mlb := parseHex(b.Light)
-	return lipgloss.AdaptiveColor{
-		Light: formatHex(mix(lr, mlr), mix(lg, mlg), mix(lb, mlb)),
-		Dark:  formatHex(mix(ar, br), mix(ag, bg), mix(ab, bb)),
-	}
-}
-
-// ThresholdLabel returns the warn/crit thresholds as a short string, e.g.
-// "70°/90°", for the panel footer.
-func ThresholdLabel(warn, crit float64, unit string) string {
-	switch {
-	case warn <= 0 && crit <= 0:
-		return ""
-	case crit <= 0:
-		return fmt.Sprintf("warn %g%s", warn, unit)
-	case warn <= 0:
-		return fmt.Sprintf("crit %g%s", crit, unit)
-	default:
-		return fmt.Sprintf("warn %g%s  crit %g%s", warn, unit, crit, unit)
-	}
-}
-
-// meterRunes are the eighth-height block characters used for the fractional
-// last cell of a meter, from empty to full.
-var meterRunes = []rune{' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'}

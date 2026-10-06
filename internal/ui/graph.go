@@ -25,11 +25,6 @@ type GraphOptions struct {
 	// the graph, the way btop overlays its labels.
 	Label string
 	Value string
-	// Unit is appended to the value.
-	Unit string
-	// Autoscale grows the ceiling to fit the data when the metric has no
-	// meaningful fixed maximum, such as fan RPM on a quiet machine.
-	Autoscale bool
 	// Thick draws the trace as a band of dot rows rather than a single row, so
 	// a wide graph still reads as a line at a glance.
 	Thick int
@@ -54,9 +49,6 @@ func RenderGraph(values []float64, o GraphOptions, th Theme) []string {
 	}
 
 	lo, hi := o.Min, o.Max
-	if o.Autoscale {
-		lo, hi = autoscale(values, o.Min, o.Max)
-	}
 	if hi <= lo {
 		hi = lo + 1
 	}
@@ -143,29 +135,6 @@ func (g *Grid) dotsSet(dotX, dotY int) bool {
 	}
 	cx, cy := dotX/brailleCols, dotY/brailleRows
 	return g.cells[cy*g.Width()+cx]&dotBit(dotX%brailleCols, dotY%brailleRows) != 0
-}
-
-// autoscale picks bounds from the data when the metric has no fixed maximum.
-func autoscale(values []float64, lo, hi float64) (float64, float64) {
-	minV, maxV := math.Inf(1), math.Inf(-1)
-	for _, v := range values {
-		if math.IsNaN(v) {
-			continue
-		}
-		minV = math.Min(minV, v)
-		maxV = math.Max(maxV, v)
-	}
-	if math.IsInf(minV, 1) || math.IsInf(maxV, -1) {
-		return lo, hi
-	}
-	// Keep a floor of range so a perfectly flat series does not divide by zero
-	// or amplify float noise into a full-height graph.
-	if span := maxV - minV; span < 1 {
-		minV -= 1
-		maxV += 1
-	}
-	// Round outward to tidy numbers so the axis reads well.
-	return math.Floor(minV), math.Ceil(maxV)
 }
 
 // latestOf returns the last valid sample, or NaN.

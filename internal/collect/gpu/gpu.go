@@ -1,5 +1,4 @@
-// Package gpu discovers GPUs and reports their utilization, memory, power and
-// temperature.
+// Package gpu discovers GPUs and reports their temperatures and fan speeds.
 //
 // Three backends are tried, in order of fidelity:
 //
@@ -14,6 +13,8 @@ package gpu
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"sort"
 	"strconv"
 	"strings"
@@ -89,12 +90,12 @@ func (c *Collector) Collect(ctx context.Context) ([]model.Device, error) {
 	var (
 		out   []model.Device
 		seen  = map[string]bool{}
-		warns []string
+		warns []error
 	)
 	for _, b := range c.backends {
 		devs, err := b.Collect(ctx)
 		if err != nil {
-			warns = append(warns, b.Name()+": "+err.Error())
+			warns = append(warns, fmt.Errorf("%s: %w", b.Name(), err))
 		}
 		for _, d := range devs {
 			// Key on the PCI address when we have one, else the name, so
@@ -113,8 +114,11 @@ func (c *Collector) Collect(ctx context.Context) ([]model.Device, error) {
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Index < out[j].Index })
-	_ = warns
-	return out, nil
+
+	// Whatever was read is returned even when a backend failed: one card that
+	// will not report a temperature must not hide the two that will. The error
+	// rides along so the caller can say which backend is unhappy.
+	return out, errors.Join(warns...)
 }
 
 // Metrics turns devices into the graphable temperature series the UI renders.

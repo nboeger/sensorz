@@ -98,12 +98,7 @@ func (b *drmBackend) Collect(ctx context.Context) ([]model.Device, error) {
 			// "No sensor yet" rather than a zero: a driver that exposes
 			// telemetry but no temperature must not draw a 0C graph.
 			Temperature: math.NaN(),
-		}
-
-		// amdgpu and i915 both export gpu_busy_percent as a whole-device
-		// utilization percentage.
-		if v, err := readFloat(filepath.Join(c.Dev, "gpu_busy_percent")); err == nil {
-			d.UtilPercent = v
+			FanPercent:  -1,
 		}
 
 		if c.hwmon != "" {
@@ -114,20 +109,6 @@ func (b *drmBackend) Collect(ctx context.Context) ([]model.Device, error) {
 				d.Temperature = main.Value
 			}
 			d.ExtraTemps = extras
-			if p, err := readFloat(filepath.Join(c.hwmon, "power1_average")); err == nil {
-				d.PowerTotal = p
-			} else if p, err := readFloat(filepath.Join(c.hwmon, "power1_input")); err == nil {
-				d.PowerTotal = p
-			}
-			if cap, err := readFloat(filepath.Join(c.hwmon, "power1_cap")); err == nil {
-				d.PowerLimit = cap / 1e6 // microwatts to watts
-			}
-			if used, total, ok := amdgpuVRAM(c.Dev); ok {
-				d.MemoryUsed, d.MemoryTotal = used, total
-				if total > 0 {
-					d.MemUtilPct = used / total * 100
-				}
-			}
 			if cl, err := readFloat(filepath.Join(c.hwmon, "pwm1")); err == nil {
 				// amdgpu exports fan speed as a 0..255 duty cycle; convert it
 				// to a percentage so the UI does not have to care.
@@ -193,20 +174,6 @@ func hwmonTemps(dir string) (main model.ExtraTemp, extras []model.ExtraTemp) {
 		extras = append(extras, model.ExtraTemp{Label: label, Value: milli / 1000, Max: maxT})
 	}
 	return main, extras
-}
-
-// amdgpuVRAM reads total and used VRAM from the amdgpu-specific
-// mem_info_vram_total / mem_info_vram_used attributes, expressed in bytes.
-func amdgpuVRAM(dev string) (used, total float64, ok bool) {
-	total, err := readFloat(filepath.Join(dev, "mem_info_vram_total"))
-	if err != nil || total <= 0 {
-		return 0, 0, false
-	}
-	used, err = readFloat(filepath.Join(dev, "mem_info_vram_used"))
-	if err != nil {
-		used = 0
-	}
-	return used, total, true
 }
 
 func vendorOf(dev string) string {

@@ -1,7 +1,11 @@
 package sensors
 
 import (
+	"os"
+	"path/filepath"
+	"strconv"
 	"testing"
+	"time"
 
 	"github.com/nathan/sensorz/internal/collect/hwmon"
 	"github.com/nathan/sensorz/internal/model"
@@ -181,4 +185,70 @@ func TestCollectReturnsOnlyValidReadings(t *testing.T) {
 		}
 	}
 	t.Logf("%d sensor metrics from the default filter", len(ms))
+}
+
+// writeChip lays out a fake hwmon chip with one temperature channel.
+func writeChip(t *testing.T, root, dir, name, label string, milli int64) {
+	t.Helper()
+	d := filepath.Join(root, dir)
+	if err := os.MkdirAll(d, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// hwmon values are written without a trailing newline, as the kernel does.
+	for file, content := range map[string]string{
+		"name":        name + "\n",
+		"temp1_label": label + "\n",
+		"temp1_input": strconv.FormatInt(milli, 10),
+	} {
+		if err := os.WriteFile(filepath.Join(d, file), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// A sensor plugged in after sensorz started must turn up without a restart.
+//
+// The chip list is cached, and the cache is what makes a two second sample
+// cheap, so the only way a hot-plugged device can appear is if something
+// re-enumerates the tree. This drives that: the chip appears between the first
+// and second pass, and the pass after the rescan interval must see it.
+func TestHotPluggedSensorAppears(t *testing.T) {
+	root := t.TempDir()
+	writeChip(t, root, "hwmon0", "coretemp", "Package id 0", 40_000)
+
+	old := hwmon.Root
+	hwmon.Root = root
+	t.Cleanup(func() { hwmon.Root = old })
+
+	c := New(DefaultFilter())
+	first, err := c.Collect()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(first) != 1 {
+		t.Fatalf("first pass found %d metrics, want 1", len(first))
+	}
+
+	// Someone plugs in a USB sensor. Nothing else changes.
+	writeChip(t, root, "hwmon1", "usb10x", "Sensor 1", 30_000)
+
+	// Within the rescan interval the collector is still using its cached list,
+	// which is the point of the cache.
+	mid, err := c.Collect()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(mid) != 1 {
+		t.Errorf("found %d metrics before the rescan, want the cached 1", len(mid))
+	}
+
+	// Past it, the new chip is picked up.
+	c.lastScan = time.Now().Add(-2 * rescanInterval)
+	after, err := c.Collect()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after) != 2 {
+		t.Fatalf("found %d metrics after the rescan, want 2", len(after))
+	}
 }

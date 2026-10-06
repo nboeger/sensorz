@@ -2,7 +2,10 @@
 // produce these values, the history store keeps them, and the UI renders them.
 package model
 
-import "time"
+import (
+	"math"
+	"time"
+)
 
 // Kind identifies what a metric measures. It drives units, formatting and the
 // colour thresholds used by the UI.
@@ -77,60 +80,38 @@ type Metric struct {
 	// Value is the current reading in canonical units (Celsius, percent,
 	// watts...). Collectors normalise everything up front.
 	Value float64
-	// Max is a sane upper bound used to scale the graph when the metric has
-	// no intrinsic maximum (utilization is 0-100, temperature is not).
+	// Max and Min are the vertical scale of the graph. A temperature has no
+	// intrinsic maximum - a CPU dies somewhere below 150 and nowhere near it -
+	// so these come from the sensor's own critical point rather than from a
+	// table.
 	Max float64
-	// Min is the lower bound of the graph.
 	Min float64
 	// Thresholds drive the green -> yellow -> red colouring.
 	Warn float64
 	Crit float64
-	// Optional holds secondary readings such as a fan duty-cycle percentage
-	// shown next to the RPM value.
+	// Hint is a short note shown under the figure: for an average, how many
+	// sensors went into it.
 	Hint string
 }
 
 // Valid reports whether the metric carries a usable reading. Sensors such as
 // the iwlwifi temperature return EINVAL until the radio is up; those samples
 // must not create graph discontinuities.
-func (m Metric) Valid() bool { return !math_IsNaN(m.Value) }
-
-func math_IsNaN(f float64) bool { return f != f }
-
-// Percent returns the reading as a 0..1 fraction of the metric's range.
-func (m Metric) Percent() float64 {
-	if m.Max <= m.Min {
-		return 0
-	}
-	p := (m.Value - m.Min) / (m.Max - m.Min)
-	switch {
-	case p < 0:
-		return 0
-	case p > 1:
-		return 1
-	default:
-		return p
-	}
-}
+func (m Metric) Valid() bool { return !math.IsNaN(m.Value) }
 
 // Device is one GPU (or other accelerator) exposed by the gpu collector.
 type Device struct {
-	Index       int
-	Name        string
-	Vendor      string
-	Driver      string
-	PciAddress  string
-	MemoryTotal float64 // bytes
-	MemoryUsed  float64 // bytes
-	PowerTotal  float64 // watts
-	PowerLimit  float64 // watts
+	Index      int
+	Name       string
+	Vendor     string
+	Driver     string
+	PciAddress string
+	// FanPercent is the card's fan duty cycle, or -1 where the driver will not
+	// say.
 	FanPercent  float64
-	Temperature float64 // Celsius
-	UtilPercent float64
-	MemUtilPct  float64
-	ClockMHz    float64
-	// Per-GPU temperature sensors beyond the main one (e.g. NVIDIA memory
-	// and hotspot sensors).
+	Temperature float64 // Celsius, NaN when the driver exposes no sensor
+	// ExtraTemps are the card's other temperature sensors: an NVIDIA card has a
+	// hotspot and a memory junction reading beside its GPU temperature.
 	ExtraTemps []ExtraTemp
 	// Err records why this device could not be refreshed this tick.
 	Err string

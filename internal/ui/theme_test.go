@@ -51,32 +51,6 @@ func TestRampGoesGreenToRed(t *testing.T) {
 	}
 }
 
-// The meter has to read as btop's does: solid where the value is, a dotted
-// track where there is room left.
-func TestMeterDrawsATrack(t *testing.T) {
-	th := DefaultTheme()
-	m := Meter(10, 0.5, th, th.Good)
-	if !strings.Contains(m, string(meterFill)) {
-		t.Errorf("meter %q has no filled portion", stripANSI(m))
-	}
-	if !strings.Contains(m, string(meterTrack)) {
-		t.Errorf("meter %q has no dotted track for the remainder", stripANSI(m))
-	}
-	if got := lipgloss.Width(m); got != 10 {
-		t.Errorf("meter is %d cells wide, want 10", got)
-	}
-	if stripANSI(Meter(10, 0, th, th.Good)) != strings.Repeat(string(meterTrack), 10) {
-		t.Error("an empty meter should be all track")
-	}
-	if stripANSI(Meter(10, 1, th, th.Good)) != strings.Repeat(string(meterFill), 10) {
-		t.Error("a full meter should be all fill")
-	}
-	// A zero width meter must render nothing rather than panic.
-	if Meter(0, 0.5, th, th.Good) != "" {
-		t.Error("a zero width meter should be empty")
-	}
-}
-
 func stripANSI(s string) string {
 	var b strings.Builder
 	inEsc := false

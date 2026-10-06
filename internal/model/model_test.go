@@ -6,9 +6,9 @@ import (
 )
 
 func TestFormatValueKeepsAStableWidth(t *testing.T) {
-	// Values are rendered without units in narrow columns, and the column must
-	// not jitter as the number changes, so precision is chosen per kind rather
-	// than by a blanket default.
+	// A figure changes by fractions of a degree between frames, so precision is
+	// chosen per kind rather than by a blanket default: the column must not
+	// jitter as the number moves.
 	cases := []struct {
 		kind Kind
 		v    float64
@@ -16,25 +16,14 @@ func TestFormatValueKeepsAStableWidth(t *testing.T) {
 	}{
 		{KindTemperature, 42.4, "42°C"},
 		{KindTemperature, 42.6, "43°C"},
-		{KindUtilization, 99.5, "100%"},
-		{KindPower, 17.03, "17.0W"},
-		{KindPower, 200, "200W"},
+		{KindTemperature, -5, "-5°C"},
 		{KindFan, 1404, "1404RPM"},
-		{KindVoltage, 1.254, "1.25V"},
-		{KindCurrent, 0.75, "0.75A"},
+		{KindFan, 9, "9RPM"},
 	}
 	for _, tc := range cases {
 		if got := FormatValue(tc.kind, tc.v); got != tc.want {
 			t.Errorf("FormatValue(%v, %v) = %q, want %q", tc.kind, tc.v, got, tc.want)
 		}
-	}
-}
-
-func TestFormatValueBytesIsHuman(t *testing.T) {
-	// A raw byte count would be an eleven digit number in a narrow column.
-	got := FormatValueCompact(KindBytes, 9_470_000)
-	if got != "9.03MB" {
-		t.Errorf("FormatValueCompact(bytes) = %q, want 9.03MB", got)
 	}
 }
 
@@ -55,22 +44,6 @@ func TestHumanBytes(t *testing.T) {
 		if got := HumanBytes(tc.in); got != tc.want {
 			t.Errorf("HumanBytes(%v) = %q, want %q", tc.in, got, tc.want)
 		}
-	}
-}
-
-// A graph is only plottable if its ceiling is above its floor; a metric with a
-// zero-width range would divide by zero in the renderer.
-func TestMetricPercentHandlesDegenerateRange(t *testing.T) {
-	m := Metric{Min: 0, Max: 0, Value: 5}
-	if got := m.Percent(); got != 0 {
-		t.Errorf("Percent with a zero-width range = %v, want 0", got)
-	}
-	// Values outside the range clamp rather than overflowing the panel.
-	if got := (Metric{Min: 0, Max: 10, Value: 99}).Percent(); got != 1 {
-		t.Errorf("Percent above the ceiling = %v, want 1", got)
-	}
-	if got := (Metric{Min: 0, Max: 10, Value: -5}).Percent(); got != 0 {
-		t.Errorf("Percent below the floor = %v, want 0", got)
 	}
 }
 

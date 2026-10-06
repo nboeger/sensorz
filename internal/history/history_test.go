@@ -62,40 +62,6 @@ func TestGapsAreRecordedNotInterpolated(t *testing.T) {
 	}
 }
 
-func TestMinMaxTrackExtremes(t *testing.T) {
-	st := NewStore(16)
-	base := time.Unix(0, 0)
-	for _, v := range []float64{10, 42, 7, 99, 50} {
-		st.Push("t", v, base)
-	}
-	s := st.Get("t")
-	if s.Min() != 7 {
-		t.Errorf("Min = %v, want 7", s.Min())
-	}
-	if s.Max() != 99 {
-		t.Errorf("Max = %v, want 99", s.Max())
-	}
-}
-
-func TestEvictDropsStaleSeries(t *testing.T) {
-	st := NewStore(8)
-	base := time.Unix(0, 0)
-	st.Push("old", 1, base)
-	st.Push("new", 2, base.Add(time.Hour))
-
-	// Evaluate shortly after the newest sample: "old" is over an hour stale,
-	// "new" is only thirty seconds old.
-	if removed := st.Evict(base.Add(time.Hour+30*time.Second), time.Minute); removed != 1 {
-		t.Errorf("Evict removed %d, want 1", removed)
-	}
-	if st.Get("old") != nil {
-		t.Error("the stale series survived eviction")
-	}
-	if st.Get("new") == nil {
-		t.Error("the current series was evicted")
-	}
-}
-
 // Values returns a copy. A caller holding it must not be able to corrupt the
 // store by writing to it.
 func TestValuesIsACopy(t *testing.T) {

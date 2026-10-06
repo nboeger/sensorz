@@ -4,9 +4,9 @@
 // various `gosensors` forks all stopped between 2016 and 2022) or built for
 // Prometheus-style metric export (elastic-agent-system-metrics' hwmon package
 // exposes only temp/volt/fan as unsigned integers and drags in go-structform).
-// The sysfs ABI is stable, small and documented in
+// The sysfs ABI is stable, small and documented in the kernel tree under
 // Documentation/ABI/testing/sysfs-class-hwmon, so reading it directly is less
-// code and strictly more capable than any of them. See docs/libraries.md.
+// code and strictly more capable than any of them.
 package hwmon
 
 import (

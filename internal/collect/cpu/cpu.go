@@ -1,10 +1,8 @@
-// Package cpu reports the static facts about the machine's processors.
+// Package cpu reports how many logical CPUs the machine has and when it booted.
 //
-// sensorz draws temperatures and fan speeds, not utilisation, so there is
-// nothing here about how busy the CPU is: the CPU panel is built entirely from
-// the temperature channels the hwmon collector reports. What this package
-// still needs to supply is how many logical CPUs there are, which decides how
-// the CPU temperature average is labelled, and the boot time for the header.
+// Nothing about how busy those CPUs are: the CPU panel is built from the
+// temperature channels the hwmon collector reports, so the core count is only
+// needed to label the average ("CPU x16") and the boot time for the header.
 package cpu
 
 import (

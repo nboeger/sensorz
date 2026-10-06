@@ -45,37 +45,26 @@ func TestGPUsAreDiscovered(t *testing.T) {
 		}
 		seen[key] = true
 
-		if d.Temperature != 0 && (d.Temperature < -50 || d.Temperature > 130) {
+		// A card either produced a plausible temperature or says it has no
+		// sensor, and the two must not be confused: NaN is how the latter is
+		// spelled, because zero is a reading a card can legitimately report.
+		if d.HasTemperature() && (d.Temperature < -50 || d.Temperature > 130) {
 			t.Errorf("%s: implausible temperature %.1fC", d.Name, d.Temperature)
 		}
-		if d.UtilPercent < 0 || d.UtilPercent > 100 {
-			t.Errorf("%s: utilization %.1f%% out of range", d.Name, d.UtilPercent)
+		if !d.HasTemperature() && d.Temperature == d.Temperature {
+			t.Errorf("%s: no temperature, but Temperature is the number %v rather than NaN", d.Name, d.Temperature)
 		}
-		if d.MemoryTotal > 0 {
-			if d.MemoryUsed < 0 || d.MemoryUsed > d.MemoryTotal {
-				t.Errorf("%s: VRAM used %.0f of %.0f", d.Name, d.MemoryUsed, d.MemoryTotal)
-			}
-			// VRAM used should track the driver's own memory utilization
-			// percentage within a few points.
-			if d.MemUtilPct > 0 {
-				want := d.MemoryUsed / d.MemoryTotal * 100
-				if absF(d.MemUtilPct-want) > 10 {
-					t.Errorf("%s: memory utilization %.0f%% disagrees with %.0f%% computed from VRAM", d.Name, d.MemUtilPct, want)
-				}
-			}
+		if d.FanPercent < -1 || d.FanPercent > 100 {
+			t.Errorf("%s: fan %.1f%% out of range", d.Name, d.FanPercent)
 		}
-		if d.PowerLimit > 0 && d.PowerTotal > d.PowerLimit*1.05 {
-			t.Errorf("%s: power %.1fW exceeds the %.1fW limit", d.Name, d.PowerTotal, d.PowerLimit)
-		}
-		t.Logf("%s: %.0fC, %.0f%% util, %.1fW, %d/%d bytes VRAM", d.Name, d.Temperature, d.UtilPercent, d.PowerTotal, int(d.MemoryUsed), int(d.MemoryTotal))
+		t.Logf("%s: %.0fC, fan %.0f%%, %d extra sensors", d.Name, d.Temperature, d.FanPercent, len(d.ExtraTemps))
 	}
 }
 
 func TestMetricsAreWellFormed(t *testing.T) {
 	devs := []model.Device{{
 		Index: 0, Name: "Test GPU", Driver: "nvidia", PciAddress: "0000:01:00.0",
-		Temperature: 65, UtilPercent: 40, PowerTotal: 120, PowerLimit: 200,
-		MemoryTotal: 8 << 30, MemoryUsed: 2 << 30,
+		Temperature: 65, FanPercent: 40,
 		ExtraTemps: []model.ExtraTemp{{Label: "Limit", Value: 83, Max: 84}},
 	}}
 
@@ -89,10 +78,10 @@ func TestMetricsAreWellFormed(t *testing.T) {
 		if m.Max <= m.Min {
 			t.Errorf("%s: range [%v, %v] cannot be plotted", m.ID, m.Min, m.Max)
 		}
-		// Power graphs must be scaled to the card's real power limit, or a
-		// 200W card looks permanently idle next to a 300W one.
-		if m.Kind == model.KindPower && m.Max != 200 {
-			t.Errorf("power graph ceiling = %v, want the card's 200W limit", m.Max)
+		// The card's own thermal limit is a better ceiling than a hardcoded
+		// 100C, which varies by board and by the card's power limit.
+		if m.ID == "gpu.0.temp.limit" && m.Max != 84 {
+			t.Errorf("limit graph ceiling = %v, want the card's own 84C limit", m.Max)
 		}
 	}
 
@@ -137,11 +126,4 @@ func TestPCIDetectsDisplayClass(t *testing.T) {
 			t.Errorf("class %q: display=%v, want %v", tc.class, got, tc.want)
 		}
 	}
-}
-
-func absF(v float64) float64 {
-	if v < 0 {
-		return -v
-	}
-	return v
 }

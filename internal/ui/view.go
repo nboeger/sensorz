@@ -13,12 +13,8 @@ import (
 	"github.com/nathan/sensorz/internal/model"
 )
 
-// View renders the whole dashboard.
-//
-// The dashboard is a thermal and airflow monitor: temperatures and fan speeds,
-// nothing else. There is deliberately no CPU utilisation, memory or throughput
-// panel to look at, because every row on screen is a reading the user can act
-// on - run something cooler, open a case, clean a filter.
+// View renders the whole dashboard: temperatures and fan speeds, one graph and
+// one figure per box.
 func (m *Model) View() string {
 	if m.err != nil {
 		return m.th.Style(m.th.Bad).Render("sensorz: " + m.err.Error())
@@ -163,7 +159,7 @@ func (m *Model) header(w int) string {
 		spaces = max(3, w-lipgloss.Width(left)-lipgloss.Width(clock)-3)
 	}
 	head := " " + left + " " + fill(spaces/2) + " " + clock + " " + fill(spaces-spaces/2) + state + " "
-	head = padLine(truncateStyled(head, w), w)
+	head = padLine(truncate(head, w), w)
 
 	// The rule under the bar is the same thin line btop draws below its header,
 	// and the panels start immediately below it.
@@ -246,14 +242,11 @@ const minFigureWidth = 18
 // thresholds instead.
 const minGraphRows = 3
 
-// headline renders the panel's one important number: what is being measured, a
-// level bar showing how much of its limit is used, the value as a large block
-// figure, and the unit underneath.
+// headline renders the panel's one important number: what is being measured, the
+// value as a large block figure, and its unit underneath.
 //
 // The figure is drawn rather than typed because a terminal has one font size:
-// the only way to make a number bigger is to draw it. The bar stands to its
-// left, because a bar beside a number says how much of the limit is gone where
-// a number on its own only says where it is.
+// the only way to make a number bigger is to draw it.
 func (m *Model) headline(w int, mt model.Metric, caption string, budget int) (rows []string, figureW int) {
 	color := m.th.Ramp(mt.Value, mt.Warn, mt.Crit)
 	style := m.th.Style(color).Bold(true)
@@ -275,9 +268,7 @@ func (m *Model) headline(w int, mt model.Metric, caption string, budget int) (ro
 		rows = append(rows, "")
 	}
 
-	// The figure, its unit, and then as much air as the budget allows above
-	// and below it. The number is the whole panel: there is one graph down the
-	// left, and beside it there is the figure and nothing else to compete.
+	// The figure, its unit, and then as much air as the budget allows.
 	hasCaption := budget-len(rows) >= 2
 	for _, line := range figure {
 		rows = append(rows, center(style.Render(line), w))
@@ -295,7 +286,7 @@ func (m *Model) headline(w int, mt model.Metric, caption string, budget int) (ro
 func center(s string, w int) string {
 	sw := lipgloss.Width(s)
 	if sw >= w {
-		return truncateStyled(s, w)
+		return truncate(s, w)
 	}
 	left := (w - sw) / 2
 	return strings.Repeat(" ", left) + s + strings.Repeat(" ", w-left-sw)
@@ -343,14 +334,12 @@ func (m *Model) columnGraph(w, h int, mt model.Metric) []string {
 	}, m.th)
 }
 
-// panelBody lays out a panel that has one important number in it.
+// panelBody lays out a panel that has one important number in it: the history
+// down the left against the border, the figure to its right, and the thresholds
+// along the bottom.
 //
-// The history graph runs down the far left against the border, where it can use
-// the full height of the panel and be read without looking away from the figure.
-// The level bar and the figure sit to its right, and the thresholds run along
-// the bottom. The graph does not also go under the figure: that would squeeze
-// the figure into a corner and leave the graph a quarter of the panel it is the
-// reason for.
+// The graph does not also go under the figure. That squeezes the figure into a
+// corner and leaves the graph a quarter of the panel it is the reason for.
 // below is a function rather than a slice of finished rows, because the rows
 // under the figure are laid out in whatever width is left after the graph has
 // taken its share, and a row built for the full panel would have its value
@@ -362,13 +351,12 @@ func (m *Model) panelBody(innerW, innerH int, mt model.Metric, caption string, b
 
 	const gap = 2
 
-	// Half the panel, which is as much as the figure can spare now that it has
-	// the level bar's old width to itself: more columns is more samples on
-	// screen, and a plot that shows forty-eight samples says more about the
-	// last ten minutes than one that shows thirty. The figure still needs room
-	// of its own, and if the plot cannot be drawn at all - a panel too short to
-	// hold three rows of it - the figure gets the whole width rather than
-	// sharing it with a column of blanks.
+	// Half the panel. More columns is more samples on screen, and a plot that
+	// shows fifty-eight samples says more about the last ten minutes than one
+	// that shows thirty. The figure still needs room of its own, and if the plot
+	// cannot be drawn at all - a panel too short to hold three rows of it - the
+	// figure gets the whole width rather than sharing it with a column of
+	// blanks.
 	graphW := clampInt(innerW*50/100, 12, 60)
 	if innerW-graphW-gap < minFigureWidth || m.columnGraph(graphW, innerH-1, mt) == nil {
 		graphW = 0
@@ -568,7 +556,7 @@ func (m *Model) gpuLine(d model.Device, innerW int) string {
 	} else {
 		row += " "
 	}
-	return truncateStyled(row+extrasText, innerW)
+	return truncate(row+extrasText, innerW)
 }
 
 // fanContent draws the fan panel: the average speed across every fan first,
@@ -648,7 +636,7 @@ func (m *Model) inlineRow(w int, name, value string) string {
 	v := m.th.Style(m.th.Value).Render(value)
 	pad := w - lipgloss.Width(l) - lipgloss.Width(v)
 	if pad < 1 {
-		return truncateStyled(l+" "+v, w)
+		return truncate(l+" "+v, w)
 	}
 	return l + strings.Repeat(" ", pad) + v
 }

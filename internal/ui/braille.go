@@ -275,7 +275,7 @@ func resample(values []float64, n int) []float64 {
 }
 
 // extreme returns the value furthest from the series mean, which for a
-// temperature or utilization plot is the interesting one: the peak.
+// temperature plot is the interesting one: the peak.
 func extreme(vals []float64) float64 {
 	var sum float64
 	var n int
@@ -337,18 +337,4 @@ func abs(v int) int {
 		return -v
 	}
 	return v
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }

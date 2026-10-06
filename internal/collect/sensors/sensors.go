@@ -3,9 +3,9 @@
 package sensors
 
 import (
-	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/nathan/sensorz/internal/collect/hwmon"
 	"github.com/nathan/sensorz/internal/model"
@@ -13,10 +13,13 @@ import (
 
 // Collector reads hwmon and normalises it into metrics.
 type Collector struct {
-	mu      sync.Mutex
-	chips   []hwmon.Chip
-	scanned bool
-	filter  Filter
+	mu    sync.Mutex
+	chips []hwmon.Chip
+	// lastScan is when the chip list was last enumerated. The values are read
+	// every tick; only the list is expensive enough to be worth caching, and
+	// only rarely enough to be worth refreshing.
+	lastScan time.Time
+	filter   Filter
 }
 
 // Filter decides which channels make it into the UI.
@@ -94,30 +97,27 @@ func New(f Filter) *Collector {
 
 // Collect reads hwmon and returns the filtered sensor metrics.
 //
-// Chip discovery is cached: the set of hwmon devices is stable for the life of
-// the process unless the user hot-plugs a USB sensor, so we re-scan only when
-// a channel fails to read. That keeps the hot path to a few hundred small
-// file reads.
+// The chip list is cached and re-enumerated once a minute: which devices exist
+// is stable for the life of the process unless someone plugs in a USB thermal
+// sensor, while their values change every tick and are always read. A sensor
+// plugged in after startup therefore appears within a minute without a restart.
 func (c *Collector) Collect() ([]model.Metric, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	var (
-		chips []hwmon.Chip
-		err   error
-	)
-	if c.scanned {
-		chips = c.chips
-	} else {
-		chips, err = hwmon.Read()
+	// Re-enumerate the chip list on a slow cadence so a USB thermal sensor
+	// plugged in after startup turns up, but do not pay for a full re-read on
+	// every tick. Between enumerations we reuse the cached list and read only
+	// the values, which is what makes a two second sample cheap.
+	if c.chips == nil || time.Since(c.lastScan) > rescanInterval {
+		chips, err := hwmon.Read()
 		if err != nil {
 			return nil, err
 		}
-		c.chips, c.scanned = chips, true
+		c.chips, c.lastScan = chips, time.Now()
 	}
 
 	out := make([]model.Metric, 0, 64)
-	var misses int
 
 	// Two chips can share a name - two NVMe drives both publish a chip called
 	// "nvme" - so disambiguate the display label before building metrics.
@@ -125,7 +125,7 @@ func (c *Collector) Collect() ([]model.Metric, error) {
 	// temperatures and no way to tell which drive is which.
 	labels := chipLabels(c.chips)
 
-	for _, chip := range chips {
+	for _, chip := range c.chips {
 		if c.filter.ExcludeChips[chip.Name] {
 			continue
 		}
@@ -141,23 +141,22 @@ func (c *Collector) Collect() ([]model.Metric, error) {
 			}
 			perKind[kind]++
 			if !s.Valid() {
-				// Keep the metric so the panel layout stays stable, but do
-				// not record a value; the graph will show a gap.
-				misses++
+				// The channel exists but the kernel will not produce a value
+				// for it yet - a wifi radio that has not associated, a drive
+				// asleep. Leaving it out keeps a dead channel from drawing an
+				// empty graph; the value simply is not there this tick.
 				continue
 			}
 			out = append(out, m)
 		}
 	}
-	if misses > 0 && c.scanned {
-		// A USB sensor may have been plugged in since the last scan; refresh
-		// the device list once and let the next tick pick up the new chip.
-		if fresh, ferr := hwmon.Read(); ferr == nil && len(fresh) != len(c.chips) {
-			c.chips = fresh
-		}
-	}
 	return out, nil
 }
+
+// rescanInterval is how often the hwmon chip list is re-enumerated. Long enough
+// that the enumeration is noise, short enough that plugging in a sensor does not
+// mean restarting the dashboard to see it.
+const rescanInterval = time.Minute
 
 // excluded reports whether a channel should be hidden. Lookups are
 // case-insensitive on both halves because sysfs labels vary in case between
@@ -333,26 +332,4 @@ func itoa(i int) string {
 		i /= 10
 	}
 	return string(b[p:])
-}
-
-// SortMetrics orders metrics by category then label so the panel layout is
-// stable between frames.
-func SortMetrics(ms []model.Metric) {
-	rank := map[model.Kind]int{
-		model.KindTemperature: 0,
-		model.KindFan:         1,
-	}
-	sort.SliceStable(ms, func(i, j int) bool {
-		a, b := ms[i], ms[j]
-		if a.Category != b.Category {
-			return a.Category < b.Category
-		}
-		if a.Group != b.Group {
-			return a.Group < b.Group
-		}
-		if rank[a.Kind] != rank[b.Kind] {
-			return rank[a.Kind] < rank[b.Kind]
-		}
-		return a.Label < b.Label
-	})
 }

@@ -56,10 +56,9 @@ func run() error {
 	}
 
 	agg, err := collect.New(collect.Options{
-		Interval:        *interval,
-		ProcPath:        *procPath,
-		SensorFilter:    filter,
-		HistoryCapacity: *capacity,
+		Interval:     *interval,
+		ProcPath:     *procPath,
+		SensorFilter: filter,
 	})
 	if err != nil {
 		return err

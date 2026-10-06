@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"sync"
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
 
@@ -18,8 +19,9 @@ import (
 // /sys/class/hwmon has nothing to offer. That makes this backend mandatory
 // rather than optional on NVIDIA machines.
 type nvmlBackend struct {
-	lib nvml.Interface
-	dev []nvmlDevice
+	lib       nvml.Interface
+	dev       []nvmlDevice
+	closeOnce sync.Once
 }
 
 type nvmlDevice struct {
@@ -59,13 +61,8 @@ func newNVMLBackend() *nvmlBackend {
 		if pci, r := h.GetPciInfo(); r == nvml.SUCCESS {
 			d.PciAddress = formatPCI(pci.Domain, pci.Bus, pci.Device)
 		}
-		if mem, r := h.GetMemoryInfo(); r == nvml.SUCCESS {
-			d.MemoryTotal = float64(mem.Total)
-			d.MemoryUsed = float64(mem.Used)
-		}
-		if p, r := h.GetPowerManagementLimit(); r == nvml.SUCCESS {
-			d.PowerLimit = float64(p) / 1000
-		}
+		// -1 rather than 0: the card has a fan we have not read yet, which is
+		// not the same as a fan we read as stopped.
 		d.FanPercent = -1
 		b.dev = append(b.dev, nvmlDevice{handle: h, info: d})
 	}
@@ -78,8 +75,10 @@ func newNVMLBackend() *nvmlBackend {
 
 func (b *nvmlBackend) Name() string { return BackendNVML }
 
-// Close shuts NVML down. It is only safe to call once.
-func (b *nvmlBackend) Close() { b.lib.Shutdown() }
+// Close shuts NVML down. Calling it more than once is a no-op.
+func (b *nvmlBackend) Close() {
+	b.closeOnce.Do(func() { b.lib.Shutdown() })
+}
 
 // Collect refreshes every NVIDIA device.
 func (b *nvmlBackend) Collect(ctx context.Context) ([]model.Device, error) {
@@ -97,18 +96,8 @@ func (b *nvmlBackend) Collect(ctx context.Context) ([]model.Device, error) {
 		} else if firstErr == nil {
 			firstErr = fmt.Errorf("temperature: %s", nvml.ErrorString(r))
 		}
-		if u, r := nd.handle.GetUtilizationRates(); r == nvml.SUCCESS {
-			d.UtilPercent = float64(u.Gpu)
-			d.MemUtilPct = float64(u.Memory)
-		}
-		if p, r := nd.handle.GetPowerUsage(); r == nvml.SUCCESS {
-			d.PowerTotal = float64(p) / 1000
-		}
 		if f, r := nd.handle.GetFanSpeed(); r == nvml.SUCCESS {
 			d.FanPercent = float64(f)
-		}
-		if c, r := nd.handle.GetClockInfo(nvml.CLOCK_GRAPHICS); r == nvml.SUCCESS {
-			d.ClockMHz = float64(c)
 		}
 
 		// TEMPERATURE_GPU_MAX is the thermal target the card is allowed to

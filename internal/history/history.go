@@ -14,9 +14,6 @@ type Series struct {
 	times  []time.Time
 	head   int
 	n      int
-	// min and max track the observed extremes, used for autoscaling when a
-	// metric has no fixed upper bound.
-	min, max float64
 }
 
 // Len returns the number of samples currently held.
@@ -24,10 +21,6 @@ func (s *Series) Len() int { return s.n }
 
 // Capacity returns the ring size.
 func (s *Series) Capacity() int { return len(s.values) }
-
-// Min and Max return the extremes observed over the retained window.
-func (s *Series) Min() float64 { return s.min }
-func (s *Series) Max() float64 { return s.max }
 
 // Latest returns the most recent sample, and NaN when the series is empty.
 func (s *Series) Latest() float64 {
@@ -62,9 +55,6 @@ type Store struct {
 	mu     sync.RWMutex
 	series map[string]*Series
 	cap    int
-	// lastSeen tracks when each series was last written, so series whose
-	// sensor disappears can be evicted instead of leaking.
-	lastSeen map[string]time.Time
 }
 
 // NewStore builds a store retaining cap samples per series.
@@ -72,11 +62,7 @@ func NewStore(cap int) *Store {
 	if cap <= 0 {
 		cap = 256
 	}
-	return &Store{
-		series:   map[string]*Series{},
-		lastSeen: map[string]time.Time{},
-		cap:      cap,
-	}
+	return &Store{series: map[string]*Series{}, cap: cap}
 }
 
 // Push records one sample for a metric, creating the series on first use.
@@ -94,7 +80,6 @@ func (st *Store) Push(id string, v float64, at time.Time) {
 		st.series[id] = s
 	}
 	s.push(v, at)
-	st.lastSeen[id] = at
 }
 
 // PushSnapshot records every valid metric in a snapshot. Metrics that were
@@ -118,7 +103,6 @@ func (st *Store) PushSnapshot(ids []string, lookup func(string) (float64, bool),
 		} else {
 			s.push(math.NaN(), at)
 		}
-		st.lastSeen[id] = at
 	}
 
 	// Any series not in this snapshot also gets a gap sample.
@@ -143,34 +127,7 @@ func (st *Store) Len() int {
 	return len(st.series)
 }
 
-// Evict drops series that have not been written for longer than maxAge,
-// keeping the store bounded when a sensor is unplugged mid-session.
-func (st *Store) Evict(now time.Time, maxAge time.Duration) int {
-	st.mu.Lock()
-	defer st.mu.Unlock()
-
-	var removed int
-	for id, seen := range st.lastSeen {
-		if now.Sub(seen) > maxAge {
-			delete(st.series, id)
-			delete(st.lastSeen, id)
-			removed++
-		}
-	}
-	return removed
-}
-
 func (s *Series) push(v float64, at time.Time) {
-	if s.n == 0 {
-		s.min, s.max = v, v
-	} else {
-		if v < s.min {
-			s.min = v
-		}
-		if v > s.max {
-			s.max = v
-		}
-	}
 	s.values[s.head] = v
 	s.times[s.head] = at
 	s.head = (s.head + 1) % len(s.values)

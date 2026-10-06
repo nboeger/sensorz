@@ -26,9 +26,6 @@ type Options struct {
 	ProcPath string
 	// SensorFilter decides which hwmon channels are surfaced.
 	SensorFilter sensors.Filter
-	// HistoryCapacity is how many samples the history store retains per
-	// series. Defaults to 256.
-	HistoryCapacity int
 }
 
 // Aggregator runs every collector on a ticker and publishes snapshots.
@@ -49,8 +46,9 @@ type Aggregator struct {
 
 	snap *model.Snapshot
 
-	mu   sync.Mutex
-	done chan struct{}
+	mu        sync.Mutex
+	done      chan struct{}
+	closeOnce sync.Once
 }
 
 // New builds an Aggregator, probing every source. Individual source failures
@@ -59,9 +57,6 @@ type Aggregator struct {
 func New(opts Options) (*Aggregator, error) {
 	if opts.Interval <= 0 {
 		opts.Interval = 2 * time.Second
-	}
-	if opts.HistoryCapacity <= 0 {
-		opts.HistoryCapacity = 256
 	}
 	// procfs rejects an empty mount point outright, so normalise the zero
 	// value to the live filesystem here rather than in every collector.
@@ -84,12 +79,19 @@ func New(opts Options) (*Aggregator, error) {
 	return a, nil
 }
 
-// Close releases driver resources.
+// Close stops the collector goroutine and releases driver resources.
+//
+// Closing twice is a no-op. The UI model owns the aggregator and closes it, and
+// the command closes the aggregator too for the paths that never build a model,
+// so the two meet on the way out; a second close of the done channel would panic
+// on exit, which is a poor way for a monitor to end.
 func (a *Aggregator) Close() {
-	close(a.done)
-	if a.gpu != nil {
-		a.gpu.Close()
-	}
+	a.closeOnce.Do(func() {
+		close(a.done)
+		if a.gpu != nil {
+			a.gpu.Close()
+		}
+	})
 }
 
 // Latest returns the most recent snapshot, never nil.

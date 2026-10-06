@@ -88,6 +88,7 @@ func (b *pciBackend) Collect(ctx context.Context) ([]model.Device, error) {
 			// No telemetry means no temperature; NaN says so honestly where a
 			// zero would be indistinguishable from a real reading.
 			Temperature: math.NaN(),
+			FanPercent:  -1,
 			Vendor:      c.Vendor,
 			Driver:      c.Driver,
 			PciAddress:  c.Pci,

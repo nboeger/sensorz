@@ -189,13 +189,18 @@ func padLine(s string, w int) string {
 		return s
 	}
 	if width > w {
-		return truncateStyled(s, w)
+		return truncate(s, w)
 	}
 	return s + strings.Repeat(" ", w-width)
 }
 
 // truncate cuts a string to a display width, appending an ellipsis when it had
 // to cut.
+//
+// It preserves colour. The escape sequences around the cut are copied through,
+// so a truncated line never leaves a colour unterminated to bleed into whatever
+// is drawn next to it - which is how a whole row of a panel turns the colour of
+// the first value on it.
 func truncate(s string, w int) string {
 	if w <= 0 {
 		return ""
@@ -206,15 +211,7 @@ func truncate(s string, w int) string {
 	if w == 1 {
 		return "…"
 	}
-	return runewidth.Truncate(s, w-1, "") + "…"
-}
 
-// truncateStyled cuts an ANSI-styled string to w display cells, preserving the
-// escape sequences so colours are not left unterminated.
-func truncateStyled(s string, w int) string {
-	if lipgloss.Width(s) <= w {
-		return s
-	}
 	var (
 		b      strings.Builder
 		col    int
@@ -222,7 +219,7 @@ func truncateStyled(s string, w int) string {
 		escBuf strings.Builder
 	)
 	for _, r := range s {
-		if r == '\x1b' {
+		if r == 0x1b {
 			inEsc = true
 			escBuf.Reset()
 			escBuf.WriteRune(r)
