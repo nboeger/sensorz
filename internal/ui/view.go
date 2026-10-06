@@ -180,10 +180,11 @@ func (m *Model) topRow(w, h int) string {
 		return cpu.Render(m.cpuContent(cpu.Inner()))
 	}
 
-	// The CPU box is the wider one because its panel carries a graph per
-	// sensor, and a graph that is too narrow to hold a label and a number is
-	// not worth drawing.
-	cpuW := int(float64(w) * 0.62)
+	// Both rows are split exactly in half, so the four boxes stand in two
+	// columns of the same width and the panel borders line up down the screen.
+	// An uneven split looks deliberate until you notice the GPU box ending in
+	// a different place from the drive box under it.
+	cpuW := (w - gap) / 2
 	gpuW := w - cpuW - gap
 
 	cpu := NewPanel("CPU", cpuW, h, m.th, m.th.PanelCPU)
@@ -631,7 +632,11 @@ func (m *Model) boardContent(innerW, innerH int) []string {
 	var rows []string
 	for _, chip := range chips {
 		rows = append(rows, m.chipHeading(innerW, chip, len(byChip[chip])))
-		grid, shown := m.tempGrid(innerW, innerH-len(rows), byChip[chip])
+		// WithUnits: these readings are labelled by the board's own wiring
+		// ("SYSTIN", "AUXTIN2"), which says nothing about what they measure, so
+		// the number has to say what it is. A bare "36" on a row labelled
+		// AUXTIN2 is not a temperature the reader can identify.
+		grid, shown := m.tempGrid(innerW, innerH-len(rows), byChip[chip], true)
 		rows = append(rows, grid...)
 		if r := m.moreRow(len(byChip[chip])-shown, innerW); r != "" {
 			rows = append(rows, r)
@@ -667,7 +672,7 @@ func (m *Model) boardTemps() []model.Metric {
 // aligned from frame to frame. Each cell is a complete graph - label, number and
 // braille plot - because a grid of numbers with no plot would hide exactly the
 // thing a temperature monitor is for.
-func (m *Model) tempGrid(w, availRows int, temps []model.Metric) ([]string, int) {
+func (m *Model) tempGrid(w, availRows int, temps []model.Metric, withUnits bool) ([]string, int) {
 	if len(temps) == 0 || w < 12 {
 		return nil, 0
 	}
@@ -690,7 +695,7 @@ func (m *Model) tempGrid(w, availRows int, temps []model.Metric) ([]string, int)
 		case availRows >= 5:
 			cellH = 5
 		default:
-			return m.tempList(w, availRows, temps), len(temps)
+			return m.tempList(w, availRows, temps, withUnits), len(temps)
 		}
 	}
 
@@ -728,7 +733,7 @@ func (m *Model) tempGrid(w, availRows int, temps []model.Metric) ([]string, int)
 				Warn:  mt.Warn,
 				Crit:  mt.Crit,
 				Label: mt.Label,
-				Value: model.FormatValueCompact(mt.Kind, mt.Value),
+				Value: readout(mt, withUnits),
 			}, m.th)...)
 			block = append(block, "") // one blank row between graphs
 		}
@@ -766,7 +771,7 @@ func (m *Model) tempGrid(w, availRows int, temps []model.Metric) ([]string, int)
 // tempList renders temperatures as label-and-number rows, for panels too short
 // for graphs. It is the fallback, not the default: a number with no history is
 // still worth showing, but only when there is no room for the history.
-func (m *Model) tempList(w, availRows int, temps []model.Metric) []string {
+func (m *Model) tempList(w, availRows int, temps []model.Metric, withUnits bool) []string {
 	const cellW = 20
 	cols := max(1, min(w/cellW, len(temps)))
 	rows := (len(temps) + cols - 1) / cols
@@ -785,7 +790,7 @@ func (m *Model) tempList(w, availRows int, temps []model.Metric) []string {
 				continue
 			}
 			mt := temps[i]
-			value := model.FormatValueCompact(mt.Kind, mt.Value)
+			value := readout(mt, withUnits)
 			cell := m.th.Style(m.th.Label).Render(truncate(mt.Label, cellW-lipgloss.Width(value)-2)) +
 				" " + m.th.Style(m.th.Ramp(mt.Value, mt.Warn, mt.Crit)).Render(value)
 			if pad := cellW - lipgloss.Width(cell); pad > 0 {
@@ -800,6 +805,16 @@ func (m *Model) tempList(w, availRows int, temps []model.Metric) []string {
 		out = append(out, line)
 	}
 	return out
+}
+
+// readout renders a value for a grid cell, with its unit when the panel needs
+// one. The unit is what tells a reader that the number on a row labelled
+// "AUXTIN2" is a temperature and not a voltage or a count.
+func readout(mt model.Metric, withUnits bool) string {
+	if !withUnits {
+		return model.FormatValueCompact(mt.Kind, mt.Value)
+	}
+	return model.FormatValue(mt.Kind, mt.Value)
 }
 
 // chipHeading renders the sub-heading above one chip's temperature graphs.

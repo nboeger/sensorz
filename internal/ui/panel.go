@@ -16,11 +16,19 @@ import (
 // solid rules btop draws. The corners are left out deliberately: they are the
 // part of the block a font is most likely to be missing, and a box with no
 // corners is exactly as readable as one with them.
+// The two rules a panel is drawn from. They are the only glyphs the chrome
+// uses: one horizontal, one vertical, so a box cannot be broken by a terminal
+// that is missing a whole block of them.
+const (
+	hRule = '\u2500' // ─
+	vRule = '\u2502' // │
+)
+
 var panelBorder = lipgloss.Border{
-	Top:         "\u2500", // ─
-	Bottom:      "\u2500",
-	Left:        "\u2502", // │
-	Right:       "\u2502",
+	Top:         string(hRule),
+	Bottom:      string(hRule),
+	Left:        string(vRule),
+	Right:       string(vRule),
 	TopLeft:     "",
 	TopRight:    "",
 	BottomLeft:  "",
@@ -103,67 +111,64 @@ func (p *Panel) Render(content []string) string {
 	return p.injectTitle(rendered)
 }
 
-// injectTitle overwrites the middle of the top border with the panel title,
-// which is what btop and every other panel-based TUI does.
+// injectTitle draws the panel's top and bottom rules.
 //
-// The border is rebuilt from plain runes and coloured in one pass at the end.
-// Splicing styled text into a styled line would require counting display cells
-// around escape sequences, which is exactly the kind of off-by-one that shows
-// up as a stray escape code eating a border character.
+// The corners are the vertical rule, not a separate corner glyph: a box drawn
+// as a top rule, a body of verticals and a bottom rule has a break at each
+// corner, because the vertical run starts one row below the horizontal one and
+// never meets it. Carrying the vertical into the corner cells closes the box,
+// and it does it with the same two characters the rest of the panel uses.
 func (p *Panel) injectTitle(rendered string) string {
 	lines := strings.Split(rendered, "\n")
-	if len(lines) == 0 {
+	if len(lines) < 2 {
 		return rendered
 	}
 
-	// The panels have no corner glyphs, so the top line is nothing but the
-	// horizontal rule, and the title is written into the middle of it. The
-	// width comes from the body, which is the line that has to line up: lipgloss
-	// renders an empty corner as a space, so the rule it produced is a cell
-	// short and cannot be trusted as the measure.
-	total := lipgloss.Width(lines[0])
-	if len(lines) > 1 {
-		total = lipgloss.Width(lines[1])
-	}
-	if total < 5 {
+	// The width comes from the body, which is the part that has to line up.
+	total := lipgloss.Width(lines[1])
+	if total < 4 {
 		return rendered
 	}
-	dashes := total
-	const fill = '\u2500' // the same solid rule lipgloss drew the sides with
 
-	title := truncate(p.Title, dashes-2)
-	if title == "" {
-		return rendered
-	}
-	tw := runewidth.StringWidth(title)
+	style := p.theme.Style(p.borderColor())
+	lines[0] = style.Render(p.ruleLine(p.Title, total))
+	lines[len(lines)-1] = style.Render(p.ruleLine("", total))
+	return strings.Join(lines, "\n")
+}
 
-	// Centre the title, leaving at least one dash on either side.
-	start := 1 + (dashes-tw-2)/2
-	if start < 1 {
-		start = 1
+// ruleLine draws one horizontal edge of the panel, with the title written into
+// the top one and the vertical rule closing both ends.
+func (p *Panel) ruleLine(title string, total int) string {
+	if total < 4 {
+		return strings.Repeat(string(vRule), total)
 	}
-	if start+tw+2 > dashes {
-		start = dashes - tw - 2
-	}
-	if start < 1 {
-		start = 1
-	}
+	inner := total - 2
 
 	var b strings.Builder
-	b.WriteString(strings.Repeat(string(fill), start-1))
-	b.WriteString(" " + title + " ")
-	b.WriteString(strings.Repeat(string(fill), dashes-(start-1)-(tw+2)))
+	b.WriteRune(vRule)
 
-	color := p.borderColor()
-	lines[0] = p.theme.Style(color).Render(b.String())
-
-	// The bottom rule is written out in full as well: lipgloss renders an empty
-	// corner as a space, which would leave the box closed with a blank at each
-	// end instead of a line.
-	if len(lines) > 1 {
-		lines[len(lines)-1] = p.theme.Style(color).Render(strings.Repeat(string(fill), dashes))
+	switch title {
+	case "":
+		b.WriteString(strings.Repeat(string(hRule), inner))
+	default:
+		t := truncate(title, inner-2)
+		tw := runewidth.StringWidth(t)
+		// Centre the title, leaving at least one rule character either side.
+		left := 1 + (inner-tw-2)/2
+		if left < 1 {
+			left = 1
+		}
+		if rest := inner - (left - 1) - (tw + 2); rest > 0 {
+			b.WriteString(strings.Repeat(string(hRule), left-1))
+			b.WriteString(" " + t + " ")
+			b.WriteString(strings.Repeat(string(hRule), rest))
+		} else {
+			b.WriteString(strings.Repeat(string(hRule), inner))
+		}
 	}
-	return strings.Join(lines, "\n")
+
+	b.WriteRune(vRule)
+	return b.String()
 }
 
 // padLine pads a line to exactly w display cells, cutting it if it is longer.
