@@ -221,9 +221,13 @@ func diskTempAvg(snap *model.Snapshot) model.Metric {
 	if n > 1 {
 		label = "Drives ×" + itoa(n)
 	}
-	warn, limit := 55.0, 70.0
+	warn, limit := 40.0, 70.0
 	if crit > 0 {
-		warn, limit = crit*0.8, crit
+		limit = crit
+		// Use 40°C as warn threshold unless the critical temp is lower
+		if crit < 40 {
+			warn = crit * 0.8
+		}
 	}
 	return model.Metric{
 		ID:       MetricDiskTemp,
