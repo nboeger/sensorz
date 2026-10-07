@@ -171,10 +171,6 @@ func fanAvg(snap *model.Snapshot) model.Metric {
 	if n == 0 {
 		return model.Metric{}
 	}
-	maxRPM := peak
-	if maxRPM <= 0 {
-		maxRPM = 6000
-	}
 	return model.Metric{
 		ID:       MetricFanAvg,
 		Label:    "Average fan",
@@ -183,7 +179,7 @@ func fanAvg(snap *model.Snapshot) model.Metric {
 		Kind:     model.KindFan,
 		Value:    sum / float64(n),
 		Min:      0,
-		Max:      maxRPM,
+		Max:      3500,
 		Hint:     sensorCountNote(n),
 	}
 }
