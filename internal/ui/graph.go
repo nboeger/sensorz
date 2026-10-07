@@ -54,13 +54,22 @@ func RenderGraph(values []float64, o GraphOptions, th Theme) []string {
 	}
 
 	grid := NewGrid(o.Width, o.Height)
-	Plot(grid, values, lo, hi, PlotStyle{
-		Fill:     o.Fill,
-		DrawLine: !o.Columns,
-		Thick:    o.Thick,
-	})
 
-	labelColor := th.Ramp(latestOf(values), o.Warn, o.Crit)
+	latest := latestOf(values)
+	labelColor := th.Ramp(latest, o.Warn, o.Crit)
+
+	// Draw meter: fill from bottom up to current value height
+	if !math.IsNaN(latest) {
+		t := (latest - lo) / (hi - lo)
+		t = math.Max(0, math.Min(1, t))
+		fillHeight := int(math.Round(t * float64(grid.dotH)))
+
+		for y := grid.dotH - fillHeight; y < grid.dotH; y++ {
+			for x := 0; x < grid.dotW; x++ {
+				grid.Set(x, y)
+			}
+		}
+	}
 	labelStyle := lipgloss.NewStyle().Foreground(labelColor).Bold(true)
 	valueStyle := lipgloss.NewStyle().Foreground(labelColor).Bold(true)
 
@@ -80,11 +89,8 @@ func RenderGraph(values []float64, o GraphOptions, th Theme) []string {
 
 // paintRow colours one rendered row of braille.
 //
-// The colour of a dot is the colour of the reading behind it, ramped from pale
-// green through yellow to red by how close that reading is to the danger zone.
-// Colouring cell by cell rather than row by row is what lets a graph show
-// *where* it got hot: on a rising line the hot end is red while the cool end is
-// still green, which is what btop's graphs do.
+// For a meter display, all filled dots are coloured by the current value,
+// since they all represent the same reading just displayed as height.
 func paintRow(grid *Grid, y int, row string, o GraphOptions, th Theme, lineColor lipgloss.AdaptiveColor) string {
 	w := grid.Width()
 	runes := []rune(row)
@@ -96,46 +102,11 @@ func paintRow(grid *Grid, y int, row string, o GraphOptions, th Theme, lineColor
 			b.WriteRune('\u2800') // a blank braille cell, not a space, so the
 			continue              // graph keeps a consistent glyph pitch
 		}
-		color := lineColor
-		if v := columnValue(grid, x, y, o, len(runes)); !math.IsNaN(v) {
-			color = th.Ramp(v, o.Warn, o.Crit)
-		}
-		b.WriteString(lipgloss.NewStyle().Foreground(color).Render(string(runes[x])))
+		b.WriteString(lipgloss.NewStyle().Foreground(lineColor).Render(string(runes[x])))
 	}
 	return b.String()
 }
 
-// columnValue approximates the reading behind one column of the plot, so each
-// dot can be coloured by the value at its own x rather than by the value at the
-// end of the series.
-//
-// It walks down from the top of the column and returns at the first dot it
-// finds, which for a line plot is the curve. The search covers the whole column
-// height rather than one row: the curve at this x may be in any of the four dot
-// rows of this cell, or in a cell above, and a dot that cannot find its own value
-// falls back to the series' latest colour, which is how a rising line ends up
-// uniformly the colour of its right hand end.
-func columnValue(grid *Grid, x, y int, o GraphOptions, rowLen int) float64 {
-	// Both of the cell's dot columns, left to right.
-	for cx := x * brailleCols; cx < (x+1)*brailleCols && cx < grid.dotW; cx++ {
-		for dotY := 0; dotY < grid.dotH; dotY++ {
-			if grid.dotsSet(cx, dotY) {
-				t := 1 - float64(dotY)/float64(max(1, grid.dotH-1))
-				return o.Min + t*(o.Max-o.Min)
-			}
-		}
-	}
-	return math.NaN()
-}
-
-// dotsSet reports whether the dot at (x, dotY) is lit.
-func (g *Grid) dotsSet(dotX, dotY int) bool {
-	if dotX < 0 || dotY < 0 || dotX >= g.dotW || dotY >= g.dotH {
-		return false
-	}
-	cx, cy := dotX/brailleCols, dotY/brailleRows
-	return g.cells[cy*g.Width()+cx]&dotBit(dotX%brailleCols, dotY%brailleRows) != 0
-}
 
 // latestOf returns the last valid sample, or NaN.
 func latestOf(values []float64) float64 {

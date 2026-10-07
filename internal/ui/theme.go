@@ -126,6 +126,30 @@ func (t Theme) Ramp(value, warn, crit float64) lipgloss.AdaptiveColor {
 	}
 }
 
+// RampFill colours a dot by its position in the graph's vertical range rather
+// than by sensor thresholds. The zones match the user's mental model:
+//   - below 30 %: green
+//   - 30–33 %: green blending into yellow
+//   - 33–60 %: yellow
+//   - 60–66 %: yellow blending into red
+//   - above 66 %: red
+//
+// pct is already (value - min) / (max - min), clamped to [0, 1] by the caller.
+func (t Theme) RampFill(pct float64) lipgloss.AdaptiveColor {
+	switch {
+	case pct < 0.30:
+		return t.Good
+	case pct < 0.33:
+		return blend(t.Good, t.Warn, (pct-0.30)/(0.33-0.30))
+	case pct < 0.60:
+		return t.Warn
+	case pct < 0.66:
+		return blend(t.Warn, t.Bad, (pct-0.60)/(0.66-0.60))
+	default:
+		return t.Bad
+	}
+}
+
 // Brighten washes a colour toward white. The focused panel is drawn in a
 // brightened version of its own hue, so a box keeps the identity its colour gave
 // it and the cursor is still the only bright box on screen.

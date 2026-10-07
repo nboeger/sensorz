@@ -199,6 +199,36 @@ func chipLabels(chips []hwmon.Chip) map[string]string {
 	return out
 }
 
+// friendlyLabels maps raw hwmon label strings (lowercased) to display names
+// that a user can understand without a datasheet.
+//
+// These come from two chip families. NCT677x/678x/679x Super I/O chips appear
+// on nearly every consumer and workstation Intel/AMD board; they expose a set
+// of fixed label names regardless of what is actually wired to each pin. The
+// NVMe standard defines secondary sensor slots whose purpose varies by drive
+// firmware, so only the ones with a consistent meaning are renamed here.
+var friendlyLabels = map[string]string{
+	// NCT677x/678x/679x — motherboard thermistors
+	"systin":         "Ambient",
+	"cputin":         "Near CPU",
+	"auxtin0":        "Probe 1",
+	"auxtin1":        "Probe 2",
+	"auxtin2":        "Probe 3",
+	"auxtin3":        "Probe 4",
+	"auxtin4":        "Probe 5",
+	"peci agent 0":   "CPU (PECI)",
+	"pch_chip_temp":  "Chipset",
+}
+
+// friendlyLabel returns a display-ready name for a raw hwmon label, falling
+// back to the original when no mapping exists.
+func friendlyLabel(label string) string {
+	if renamed, ok := friendlyLabels[strings.ToLower(label)]; ok {
+		return renamed
+	}
+	return label
+}
+
 // metricFor converts one hwmon channel into a metric, reporting whether it
 // should be shown at all.
 func (c *Collector) metricFor(chip hwmon.Chip, chipLabel string, s hwmon.Sensor) (model.Metric, string, bool) {
@@ -206,6 +236,7 @@ func (c *Collector) metricFor(chip hwmon.Chip, chipLabel string, s hwmon.Sensor)
 	if c.excluded(chip.Name, label) {
 		return model.Metric{}, "", false
 	}
+	label = friendlyLabel(label)
 
 	// The chip key, not the chip name, goes into the metric id: two NVMe
 	// drives both publish a chip called "nvme", and keying on the name would
