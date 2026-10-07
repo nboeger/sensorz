@@ -89,8 +89,9 @@ func RenderGraph(values []float64, o GraphOptions, th Theme) []string {
 
 // paintRow colours one rendered row of braille.
 //
-// For a meter display, all filled dots are coloured by the current value,
-// since they all represent the same reading just displayed as height.
+// For a meter display, each row's color is determined by what temperature
+// that height represents, creating a gradient from green (bottom/cool) through
+// yellow (middle/warm) to red (top/hot).
 func paintRow(grid *Grid, y int, row string, o GraphOptions, th Theme, lineColor lipgloss.AdaptiveColor) string {
 	w := grid.Width()
 	runes := []rune(row)
@@ -102,9 +103,21 @@ func paintRow(grid *Grid, y int, row string, o GraphOptions, th Theme, lineColor
 			b.WriteRune('\u2800') // a blank braille cell, not a space, so the
 			continue              // graph keeps a consistent glyph pitch
 		}
-		b.WriteString(lipgloss.NewStyle().Foreground(lineColor).Render(string(runes[x])))
+		// Color this dot based on what temperature level its height represents
+		color := meterRowColor(grid, y, o, th)
+		b.WriteString(lipgloss.NewStyle().Foreground(color).Render(string(runes[x])))
 	}
 	return b.String()
+}
+
+// meterRowColor returns the colour for a row based on what temperature
+// that height represents in the meter display.
+func meterRowColor(grid *Grid, y int, o GraphOptions, th Theme) lipgloss.AdaptiveColor {
+	// Map row position to a temperature value
+	dotY := y * brailleRows
+	t := 1 - float64(dotY)/float64(max(1, grid.dotH-1))
+	tempAtHeight := o.Min + t*(o.Max-o.Min)
+	return th.Ramp(tempAtHeight, o.Warn, o.Crit)
 }
 
 
