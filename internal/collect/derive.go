@@ -81,9 +81,13 @@ func cpuTempAvg(snap *model.Snapshot) model.Metric {
 	}
 
 	avg := sum / float64(n)
-	warn, limit := 70.0, 100.0
+	warn, limit := 50.0, 100.0
 	if crit > 0 {
-		warn, limit = crit*0.85, crit
+		limit = crit
+		// Use 50°C as warn threshold unless the critical temp is lower
+		if crit < 50 {
+			warn = crit * 0.85
+		}
 	}
 	return model.Metric{
 		ID:       MetricCPUTemp,
