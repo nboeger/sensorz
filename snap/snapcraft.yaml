@@ -1,6 +1,6 @@
 name: sensorz
 base: core22
-version: 1.4
+version: 1.45
 summary: A terminal temperature and fan monitor
 title: sensorz — Temperature and Fan Monitor
 description: |
