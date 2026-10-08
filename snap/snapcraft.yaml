@@ -18,21 +18,12 @@ description: |
 
 grade: stable
 
-# Classic confinement, and not a negotiating one.
-#
-# sensorz reads what the kernel says about the hardware: /sys/class/hwmon for
-# every temperature and fan tachometer, /sys/class/drm and /sys/bus/pci/devices
-# for the GPU, /proc/stat for the core count. A confined snap gets a private
-# /sys, and core22's skeleton does not contain a /sys directory at all, so there
-# is no layout that can bind the sensors in - snapcraft rejects every one of
-# them with "defines a new top-level directory /sys". Even where a layout is
-# expressible, the profile still has to allow the read.
-#
-# So the choice is a snap that measures nothing, or one that runs with the same
-# access the installed binary has. This is the second. Nothing else changes
-# about it: it makes no network connections, opens no files outside /sys and
-# /proc, and writes nothing, so there is nothing for confinement to protect.
-confinement: classic
+# Strict confinement. sensorz reads the kernel's hardware monitoring data:
+# /sys/class/hwmon for every temperature and fan tachometer, /sys/class/drm and
+# /sys/bus/pci/devices for the GPU, /proc/stat for the core count. Those reads
+# are granted by the hardware-observe and system-observe interface plugs below,
+# not by layouts. It makes no network connections and writes nothing.
+confinement: strict
 contact: https://github.com/nboeger/sensorz/issues
 issues: https://github.com/nboeger/sensorz/issues
 website: https://github.com/nboeger/sensorz
@@ -42,6 +33,9 @@ license: GPL-3.0
 apps:
   sensorz:
     command: bin/sensorz
+    plugs:
+      - hardware-observe
+      - system-observe
 
 parts:
   sensorz:

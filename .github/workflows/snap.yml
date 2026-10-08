@@ -37,7 +37,7 @@ jobs:
 
       - name: Verify snap installs and runs
         run: |
-          sudo snap install --dangerous --classic "${{ steps.snap-name.outputs.snap }}"
+          sudo snap install --dangerous "${{ steps.snap-name.outputs.snap }}"
           sensorz -h
 
       - name: Upload snap artifact

@@ -200,15 +200,14 @@ Building locally:
 
 ```sh
 snapcraft --destructive-mode
-sudo snap install --dangerous --classic sensorz_1.0_amd64.snap
+sudo snap install --dangerous sensorz_1.3_amd64.snap
 ```
 
-The `snapcraft.yaml` uses `confinement: classic` because a strict `core22` snap
-cannot bind `/sys/class/hwmon` or load `libnvidia-ml.so.1` at runtime. A classic
-snap has the same host access the installed binary has: it reads `/sys` through
-the kernel's own ABI, makes no network connections, writes nothing, and exits on
-`q`. That is the only confinement mode that lets a thermal monitor see the
-hardware.
+The snap uses strict confinement. It reads the kernel's hardware monitoring data
+through the `hardware-observe` and `system-observe` interface plugs, which grant
+read access to `/sys` and `/proc/stat`. It makes no network connections and
+writes nothing. NVIDIA GPU readings load the host's `libnvidia-ml.so.1` and
+match `nvidia-smi` under strict confinement.
 
 
 
