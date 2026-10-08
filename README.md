@@ -200,7 +200,7 @@ Building locally:
 
 ```sh
 snapcraft --destructive-mode
-sudo snap install --dangerous sensorz_1.3_amd64.snap
+sudo snap install --dangerous sensorz_1.4_amd64.snap
 ```
 
 The snap uses strict confinement. It reads the kernel's hardware monitoring data
