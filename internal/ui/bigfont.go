@@ -35,6 +35,10 @@ var bigFont = map[rune][5]string{
 	// Units. Uppercase only: a 3x5 cell has no room for a lowercase letter
 	// that is still readable.
 	'°': {"010", "101", "010", "000", "000"},
+	// A percent sign is two dots and a stroke: at this size the stroke is the
+	// only thing that reads, so the dots are what make it a '%' rather than a
+	// '/'.
+	'%': {"101", "001", "010", "100", "101"},
 	'C': {"011", "100", "100", "100", "011"},
 	'R': {"110", "101", "110", "101", "101"},
 	'P': {"110", "101", "110", "100", "100"},

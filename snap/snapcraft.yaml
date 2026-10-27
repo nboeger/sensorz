@@ -1,28 +1,36 @@
 name: sensorz
 base: core22
-version: 1.45
+version: 1.46
 summary: A terminal temperature and fan monitor
 title: sensorz — Temperature and Fan Monitor
 description: |
   sensorz shows how hot your machine is and whether its fans are still spinning.
 
-  One box per class of sensor - CPU, GPU, drives, and the motherboard
-  thermistors - each with one large figure, its history as a graph, and the
-  thresholds it is judged against. Where a machine reports many of a thing, the
-  readings are averaged rather than listed: sixteen cores and eight case fans
-  are four numbers, not twenty-four.
+  One box per class of sensor - CPU, GPU, drives, the battery and the
+  motherboard thermistors - each with one large figure, its history as a graph,
+  and the thresholds it is judged against. Where a machine reports many of a
+  thing, the readings are averaged rather than listed: sixteen cores and eight
+  case fans are four numbers, not twenty-four.
 
   It reads the kernel's hardware monitoring interface directly, so it works with
-  whatever drivers the machine already has, and it reports temperatures and fan
-  speeds and nothing else.
+  whatever drivers the machine already has, and it reports temperatures, fan
+  speeds and the battery, and nothing else. The battery box appears only on a
+  machine that has one.
+  .
+  First run: the hardware-observe and system-observe plugs are not connected
+  automatically yet, so connect them once after install:
+  .
+      sudo snap connect sensorz:hardware-observe
+      sudo snap connect sensorz:system-observe
 
 grade: stable
 
 # Strict confinement. sensorz reads the kernel's hardware monitoring data:
 # /sys/class/hwmon for every temperature and fan tachometer, /sys/class/drm and
-# /sys/bus/pci/devices for the GPU, /proc/stat for the core count. Those reads
-# are granted by the hardware-observe and system-observe interface plugs below,
-# not by layouts. It makes no network connections and writes nothing.
+# /sys/bus/pci/devices for the GPU, /sys/class/power_supply for the battery,
+# /proc/stat for the core count. Those reads are granted by the
+# hardware-observe and system-observe interface plugs below, not by layouts. It
+# makes no network connections and writes nothing.
 confinement: strict
 contact: https://github.com/nboeger/sensorz/issues
 issues: https://github.com/nboeger/sensorz/issues

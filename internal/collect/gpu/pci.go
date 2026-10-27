@@ -76,6 +76,11 @@ func (b *pciBackend) Name() string { return BackendPCI }
 
 // Collect returns the unmonitored adapters with zeroed telemetry. The UI marks
 // these explicitly so an idle GPU is not mistaken for a broken sensor.
+//
+// Err explains the absence, and Sensorless says it is expected rather than a
+// failure, so the dashboard lists the card without raising a warning about it:
+// an integrated GPU with no thermal diode of its own is ordinary hardware, not
+// something for the user to chase.
 func (b *pciBackend) Collect(ctx context.Context) ([]model.Device, error) {
 	out := make([]model.Device, 0, len(b.cards))
 	for _, c := range b.cards {
@@ -93,6 +98,7 @@ func (b *pciBackend) Collect(ctx context.Context) ([]model.Device, error) {
 			Driver:      c.Driver,
 			PciAddress:  c.Pci,
 			Err:         "no telemetry exposed by this driver",
+			Sensorless:  true,
 		})
 	}
 	return out, nil

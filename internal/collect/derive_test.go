@@ -41,9 +41,14 @@ func TestCPUTempIsTheAverageAcrossSensors(t *testing.T) {
 	if avg.Label != "CPU ×16" {
 		t.Errorf("label = %q, want the core count in it", avg.Label)
 	}
-	// Thresholds follow the sensors' own critical temperature, not a guess.
-	if avg.Crit != 85 || avg.Warn != 85*0.85 {
-		t.Errorf("thresholds warn=%v crit=%v, want 85%% and 100%% of 85C", avg.Warn, avg.Crit)
+	// The critical point follows the sensors' own, and the warning point is the
+	// fixed 50C a machine is judged by: sitting at 50C is already warm enough to
+	// be worth a colour, whatever the part's own limit turns out to be.
+	if avg.Crit != 85 {
+		t.Errorf("crit = %v, want the sensors' own 85C", avg.Crit)
+	}
+	if avg.Warn != 50 {
+		t.Errorf("warn = %v, want the 50C warning point", avg.Warn)
 	}
 	if avg.Max <= avg.Crit {
 		t.Errorf("graph ceiling %v must sit above the critical point %v", avg.Max, avg.Crit)
@@ -103,9 +108,10 @@ func TestFanAverageAcrossEveryFan(t *testing.T) {
 	if avg.Value != 2000 {
 		t.Errorf("fan average = %v, want 2000", avg.Value)
 	}
-	// The graph is scaled to the fastest fan the chips declare.
-	if avg.Max != 2000 {
-		t.Errorf("fan ceiling = %v, want the declared 2000 RPM", avg.Max)
+	// The graph's ceiling is fixed rather than taken from the chips, so the
+	// scale does not jump when a fan's declared maximum changes between reads.
+	if avg.Max != 3500 {
+		t.Errorf("fan ceiling = %v, want the fixed 3500 RPM", avg.Max)
 	}
 	// A fan spinning harder is not a warning, so the graph must not colour
 	// itself red at high RPM.

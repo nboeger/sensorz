@@ -36,6 +36,15 @@ type GraphOptions struct {
 	// that is what the data is: a temperature holds, and the shape of a series
 	// that holds is a staircase, not a slope.
 	Columns bool
+	// Colour, when set, paints every dot and the overlay label in one colour
+	// instead of ramping by height.
+	//
+	// The height ramp is a temperature's mental model - the top of the meter is
+	// the hot end - and it is exactly backwards for a series where the bottom
+	// is the bad end, such as a battery's charge. Such a series supplies the
+	// colour its own reading ramps to, so a full pack is green and an empty one
+	// is red whichever end of the meter it is drawn at.
+	Colour *lipgloss.AdaptiveColor
 }
 
 // RenderGraph draws one series into exactly Height rows of Width cells.
@@ -57,6 +66,9 @@ func RenderGraph(values []float64, o GraphOptions, th Theme) []string {
 
 	latest := latestOf(values)
 	labelColor := th.Ramp(latest, o.Warn, o.Crit)
+	if o.Colour != nil {
+		labelColor = *o.Colour
+	}
 
 	// Draw meter: fill from bottom up to current value height
 	if !math.IsNaN(latest) {
@@ -103,8 +115,12 @@ func paintRow(grid *Grid, y int, row string, o GraphOptions, th Theme, lineColor
 			b.WriteRune('\u2800') // a blank braille cell, not a space, so the
 			continue              // graph keeps a consistent glyph pitch
 		}
-		// Color this dot based on what temperature level its height represents
+		// Color this dot based on what temperature level its height represents,
+		// or in one flat colour when the caller owns the colouring.
 		color := meterRowColor(grid, y, o, th)
+		if o.Colour != nil {
+			color = *o.Colour
+		}
 		b.WriteString(lipgloss.NewStyle().Foreground(color).Render(string(runes[x])))
 	}
 	return b.String()
@@ -119,7 +135,6 @@ func meterRowColor(grid *Grid, y int, o GraphOptions, th Theme) lipgloss.Adaptiv
 	tempAtHeight := o.Min + t*(o.Max-o.Min)
 	return th.Ramp(tempAtHeight, o.Warn, o.Crit)
 }
-
 
 // latestOf returns the last valid sample, or NaN.
 func latestOf(values []float64) float64 {

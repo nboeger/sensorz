@@ -2,6 +2,7 @@ package gpu
 
 import (
 	"context"
+	"math"
 	"strings"
 	"testing"
 
@@ -30,7 +31,12 @@ func TestGPUsAreDiscovered(t *testing.T) {
 	}
 
 	seen := map[string]bool{}
-	for _, d := range devs {
+	for i, d := range devs {
+		// Each card carries its own index: the panel labels the card with it
+		// and the history store keys the series off it.
+		if d.Index != i {
+			t.Errorf("device %d (%s) has index %d", i, d.Name, d.Index)
+		}
 		if d.Name == "" {
 			t.Errorf("device %d has no name", d.Index)
 		}
@@ -125,5 +131,41 @@ func TestPCIDetectsDisplayClass(t *testing.T) {
 		if got := strings.HasPrefix(tc.class, "0x03"); got != tc.want {
 			t.Errorf("class %q: display=%v, want %v", tc.class, got, tc.want)
 		}
+	}
+}
+
+// Two backends each numbering from zero is what a machine with both an NVIDIA
+// card and an integrated one looks like before the merge: NVML reports GPU0 and
+// the PCI fallback reports GPU0 again. Renumbering has to leave them distinct,
+// or the panel prints the same name twice and two series share a history key.
+func TestRenumberKeepsIndicesUnique(t *testing.T) {
+	devs := []model.Device{
+		{Index: 0, Name: "NVIDIA GeForce GTX 1650", PciAddress: "0000:01:00.0", Temperature: 45},
+		{
+			Index: 0, Name: "Intel 9BC4", PciAddress: "0000:00:02.0",
+			Temperature: math.NaN(), Sensorless: true,
+		},
+	}
+
+	renumber(devs)
+
+	for i, d := range devs {
+		if d.Index != i {
+			t.Errorf("device %q has index %d, want %d", d.Name, d.Index, i)
+		}
+	}
+
+	// Backend order is preserved, so an NVIDIA card keeps the index nvidia-smi
+	// gives it and the identity-only fallback follows it.
+	if devs[0].Name != "NVIDIA GeForce GTX 1650" {
+		t.Errorf("renumbering reordered the cards: %s is now first", devs[0].Name)
+	}
+
+	ids := map[string]bool{}
+	for _, m := range Metrics(devs) {
+		if ids[m.ID] {
+			t.Errorf("duplicate series id %q", m.ID)
+		}
+		ids[m.ID] = true
 	}
 }

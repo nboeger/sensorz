@@ -291,11 +291,18 @@ func TestCollectorsProduceData(t *testing.T) {
 	}
 	t.Logf("metrics by category: %v", byCat)
 
-	// Nothing but temperatures and fan speeds may be published: utilisation,
-	// memory and throughput are deliberately not collected.
+	// Only the quantities sensorz actually measures may be published: a
+	// temperature, a fan speed, or one of the battery's own figures. Memory and
+	// throughput are still deliberately out of scope, so a percentage or a
+	// wattage is only legitimate on the battery.
 	for _, m := range snap.Metrics {
-		if m.Kind != "temperature" && m.Kind != "fan" {
-			t.Errorf("%s: kind %q, want a temperature or a fan speed", m.ID, m.Kind)
+		if m.Kind == "temperature" || m.Kind == "fan" {
+			continue
+		}
+		batteryFigure := m.Category == "battery" &&
+			(m.Kind == "utilization" || m.Kind == "voltage" || m.Kind == "power")
+		if !batteryFigure {
+			t.Errorf("%s: kind %q in category %q is not something sensorz measures", m.ID, m.Kind, m.Category)
 		}
 	}
 

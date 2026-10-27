@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nathan/sensorz/internal/collect/battery"
 	"github.com/nathan/sensorz/internal/collect/cpu"
 	"github.com/nathan/sensorz/internal/collect/disk"
 	"github.com/nathan/sensorz/internal/collect/gpu"
@@ -40,6 +41,7 @@ type Aggregator struct {
 	disk *disk.Collector
 	gpu  *gpu.Collector
 	sens *sensors.Collector
+	bat  *battery.Collector
 
 	// GPUBackend names the telemetry source in use, for the diagnostics line.
 	GPUBackend string
@@ -76,6 +78,7 @@ func New(opts Options) (*Aggregator, error) {
 	a.gpu = gpu.New()
 	a.GPUBackend = a.gpu.Name
 	a.sens = sensors.New(opts.SensorFilter)
+	a.bat = battery.New()
 	return a, nil
 }
 
@@ -140,8 +143,8 @@ func (a *Aggregator) Once(ctx context.Context) model.Snapshot {
 		metrics []model.Metric
 		warns   []string
 	}
-	results := make([]result, 3)
-	names := []string{"cpu", "disk", "sensors"}
+	results := make([]result, 4)
+	names := []string{"cpu", "disk", "sensors", "battery"}
 
 	var wg sync.WaitGroup
 	run := func(i int, fn func() ([]model.Metric, error)) {
@@ -176,6 +179,17 @@ func (a *Aggregator) Once(ctx context.Context) model.Snapshot {
 	run(2, func() ([]model.Metric, error) {
 		return a.sens.Collect()
 	})
+	// The battery is read alongside the rest: a handful of sysfs files, and on
+	// a desktop it finds nothing at all.
+	var batteries []model.Battery
+	run(3, func() ([]model.Metric, error) {
+		bats, err := a.bat.Collect()
+		if err != nil {
+			return nil, err
+		}
+		batteries = bats
+		return battery.Metrics(bats), nil
+	})
 
 	// GPU collection is separate because it owns a driver handle and is the
 	// slowest of the bunch.
@@ -195,7 +209,7 @@ func (a *Aggregator) Once(ctx context.Context) model.Snapshot {
 
 	wg.Wait()
 
-	snap := model.Snapshot{Time: time.Now(), Devices: devs, Cores: cores}
+	snap := model.Snapshot{Time: time.Now(), Devices: devs, Batteries: batteries, Cores: cores}
 	for i, r := range results {
 		snap.Metrics = append(snap.Metrics, r.metrics...)
 		for _, w := range r.warns {
@@ -214,10 +228,24 @@ func (a *Aggregator) Once(ctx context.Context) model.Snapshot {
 	// thresholds can be derived from every individual reading.
 	derive(&snap)
 
-	for _, d := range devs {
-		if d.Err != "" {
-			snap.Warnings = append(snap.Warnings, fmt.Sprintf("gpu%d (%s): %s", d.Index, d.Name, d.Err))
-		}
-	}
+	snap.Warnings = append(snap.Warnings, deviceWarnings(devs)...)
 	return snap
+}
+
+// deviceWarnings reports the cards whose readings failed.
+//
+// A card that is simply without a sensor is not one of them: an integrated GPU
+// with no thermal diode of its own is ordinary hardware, and warning about it
+// every two seconds buries the warnings that do mean something. The card is
+// still listed in the diagnostics, where its absence of telemetry is the answer
+// to the question the user is asking.
+func deviceWarnings(devs []model.Device) []string {
+	var out []string
+	for _, d := range devs {
+		if d.Err == "" || d.Sensorless {
+			continue
+		}
+		out = append(out, fmt.Sprintf("gpu%d (%s): %s", d.Index, d.Name, d.Err))
+	}
+	return out
 }

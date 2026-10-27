@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/nathan/sensorz/internal/collect"
+	"github.com/nathan/sensorz/internal/collect/battery"
 	"github.com/nathan/sensorz/internal/collect/sensors"
 	"github.com/nathan/sensorz/internal/model"
 )
@@ -33,7 +34,15 @@ func (m *Model) View() string {
 	// readable GPU has no GPU panel, and a box with no fan sensor has no fan
 	// row, rather than either of them sitting there empty.
 	rest := h - headerH
-	topH, midH, boardH := layout(rest, m.hasFans() || m.hasDrives(), m.hasBoard())
+	// The warning line is drawn under the last panel, so it is paid for out of
+	// the panel budget. Without this the view is one row taller than the
+	// terminal on any machine with a warning, and the header scrolls off the
+	// top of the screen.
+	hasWarning := len(m.Snapshot().Warnings) > 0
+	if hasWarning {
+		rest--
+	}
+	topH, midH, boardH := layout(rest, m.hasMidRow(), m.hasBoard())
 
 	var b strings.Builder
 	b.WriteString(m.header(w))
@@ -198,34 +207,36 @@ func (m *Model) topRow(w, h int) string {
 	)
 }
 
-// midRow renders the fan and drive panels side by side.
+// midRow renders the hardware panels side by side, one column each.
 func (m *Model) midRow(w, h int) string {
-	const gap = 1
-	if !m.hasFans() && !m.hasDrives() {
+	panels := m.midRowPanels()
+	if len(panels) == 0 {
 		return ""
 	}
-	if !m.hasFans() {
-		d := NewPanel("Drives", w, h, m.th, m.th.PanelDrives)
-		d.Focus = m.focus == FocusDrives
-		return d.Render(m.driveContent(d.Inner()))
-	}
-	if !m.hasDrives() {
-		f := NewPanel("Fans", w, h, m.th, m.th.PanelFans)
-		f.Focus = m.focus == FocusFans
-		return f.Render(m.fanContent(f.Inner()))
-	}
 
-	half := (w - gap) / 2
-	fans := NewPanel("Fans", half, h, m.th, m.th.PanelFans)
-	fans.Focus = m.focus == FocusFans
-	drives := NewPanel("Drives", w-half-gap, h, m.th, m.th.PanelDrives)
-	drives.Focus = m.focus == FocusDrives
+	const gap = 1
+	// The columns are equal, with the remainder given to the last one so the row
+	// reaches the right edge exactly. Panels whose borders stop short of the row
+	// above them read as a mistake rather than a layout.
+	avail := w - gap*(len(panels)-1)
+	n, used := len(panels), 0
 
-	return Column(
-		fans.Render(m.fanContent(fans.Inner())),
-		strings.Repeat(" ", gap),
-		drives.Render(m.driveContent(drives.Inner())),
-	)
+	parts := make([]string, 0, 2*len(panels)-1)
+	for i, item := range panels {
+		width := avail / n
+		if i == n-1 {
+			width = avail - used
+		}
+		used += width
+
+		p := NewPanel(item.title, width, h, m.th, item.color)
+		p.Focus = m.focus == item.focus
+		parts = append(parts, p.Render(item.body(p.Inner())))
+		if i < n-1 {
+			parts = append(parts, strings.Repeat(" ", gap))
+		}
+	}
+	return Column(parts...)
 }
 
 // board renders the motherboard sensors: everything the CPU, GPU and drive
@@ -235,6 +246,39 @@ func (m *Model) board(w, h int) string {
 	p.Focus = m.focus == FocusBoard
 	return p.Render(m.boardContent(p.Inner()))
 }
+
+// midPanel is one box of the hardware row: a title, its hue, the cursor it
+// answers to, and the function that fills it.
+type midPanel struct {
+	title string
+	color lipgloss.AdaptiveColor
+	focus Focus
+	body  func(innerW, innerH int) []string
+}
+
+// midRowPanels lists the hardware boxes this machine actually has, in the order
+// they are read.
+//
+// Fans, drives and the battery are one class of thing - the rest of the box
+// around the CPU and GPU - so they share a row. A desktop lists one of them, a
+// laptop usually two or three, and a machine with none leaves the row out
+// entirely.
+func (m *Model) midRowPanels() []midPanel {
+	var out []midPanel
+	if m.hasFans() {
+		out = append(out, midPanel{"Fans", m.th.PanelFans, FocusFans, m.fanContent})
+	}
+	if m.hasDrives() {
+		out = append(out, midPanel{"Drives", m.th.PanelDrives, FocusDrives, m.driveContent})
+	}
+	if m.hasBattery() {
+		out = append(out, midPanel{"Battery", m.th.PanelBattery, FocusBattery, m.batteryContent})
+	}
+	return out
+}
+
+// hasMidRow reports whether the hardware row has anything in it.
+func (m *Model) hasMidRow() bool { return len(m.midRowPanels()) > 0 }
 
 // minFigureWidth is the narrowest a panel can be and still hold the figure with
 // its label and unit. Below it the panel is all figure.
@@ -251,7 +295,7 @@ const minGraphRows = 3
 // The figure is drawn rather than typed because a terminal has one font size:
 // the only way to make a number bigger is to draw it.
 func (m *Model) headline(w int, mt model.Metric, caption string, budget int) (rows []string, figureW int) {
-	color := m.th.Ramp(mt.Value, mt.Warn, mt.Crit)
+	color := m.metricColour(mt)
 	style := m.th.Style(color).Bold(true)
 
 	// Half size: one cell per pixel, with the pixel rows packed two to a cell
@@ -303,6 +347,8 @@ func bigText(mt model.Metric) string {
 		return value + "\u00b0C"
 	case model.KindFan:
 		return value + "RPM"
+	case model.KindUtilization:
+		return value + "%"
 	default:
 		return value
 	}
@@ -327,14 +373,34 @@ func (m *Model) columnGraph(w, h int, mt model.Metric) []string {
 	if w <= 0 || h < minGraphRows {
 		return nil
 	}
-	return RenderGraph(m.Values(mt.ID), GraphOptions{
+	opts := GraphOptions{
 		Width: w, Height: h,
 		Min: mt.Min, Max: mt.Max,
 		Fill:    true,
 		Columns: true,
 		Warn:    mt.Warn,
 		Crit:    mt.Crit,
-	}, m.th)
+	}
+	if mt.LowIsBad {
+		// The height ramp would paint a full battery red and an empty one
+		// green, so this series brings its own colour.
+		c := m.metricColour(mt)
+		opts.Colour = &c
+	}
+	return RenderGraph(m.Values(mt.ID), opts, m.th)
+}
+
+// metricColour returns the colour a reading should be drawn in.
+//
+// The ramp only knows how to say "too high", and most of what sensorz measures
+// is judged that way. A metric whose danger is at the bottom of its range - a
+// battery's charge, a pack's health - takes the mirrored ramp instead, so an
+// empty pack is red and a full one is green.
+func (m *Model) metricColour(mt model.Metric) lipgloss.AdaptiveColor {
+	if mt.LowIsBad {
+		return m.th.RampInverse(mt.Value, mt.Warn, mt.Crit)
+	}
+	return m.th.Ramp(mt.Value, mt.Warn, mt.Crit)
 }
 
 // panelBody lays out a panel that has one important number in it: the history
@@ -406,9 +472,17 @@ func (m *Model) footer(w int, mt model.Metric) string {
 		parts = append(parts, m.th.Style(m.th.Dim).Render("avg of "+mt.Hint))
 	}
 	if mt.Warn > 0 && mt.Crit > 0 {
+		// The bounds are carried in the metric's own unit, and the direction is
+		// spelled out for a metric that fails downwards: "crit 15%" alone reads
+		// as a ceiling every reading is under, which is the opposite of what it
+		// means for a battery.
+		op := ""
+		if mt.LowIsBad {
+			op = "<"
+		}
 		parts = append(parts,
-			m.th.Style(m.th.Warn).Render(fmt.Sprintf("warn %.1f\u00b0C", mt.Warn)),
-			m.th.Style(m.th.Bad).Render(fmt.Sprintf("crit %.1f\u00b0C", mt.Crit)))
+			m.th.Style(m.th.Warn).Render("warn "+op+model.FormatValue(mt.Kind, mt.Warn)),
+			m.th.Style(m.th.Bad).Render("crit "+op+model.FormatValue(mt.Kind, mt.Crit)))
 	}
 
 	// Whole parts or nothing: a footer cut mid-number tells the reader less
@@ -882,6 +956,141 @@ func (m *Model) hasDrives() bool { return len(m.MetricsFor(model.CategoryDisk)) 
 
 // hasBoard reports whether there are motherboard sensors worth a panel.
 func (m *Model) hasBoard() bool { return len(m.boardTemps()) > 0 }
+
+// hasBattery reports whether the machine has a pack worth a panel. A desktop
+// reports none, and an empty bay reports one that is not present.
+//
+// The battery shares the hardware row with the fans and the drives rather than
+// sitting in the board row: it is a device to be watched, not a motherboard
+// thermistor, and the hardware row is the taller of the two.
+func (m *Model) hasBattery() bool {
+	if _, ok := m.Metric(battery.MetricCharge); !ok {
+		return false
+	}
+	for _, b := range m.Snapshot().Batteries {
+		if b.Valid() {
+			return true
+		}
+	}
+	return false
+}
+
+// batteryContent renders the pack: the charge as the panel's figure, its
+// recent history as a meter, and the readings a user actually acts on - how
+// long is left, how hard it is working, and how worn it is - beside it.
+func (m *Model) batteryContent(innerW, innerH int) []string {
+	if innerW < 8 {
+		return nil
+	}
+	mt, ok := m.Metric(battery.MetricCharge)
+	if !ok {
+		return []string{m.th.Style(m.th.Dim).Render("no battery detected")}
+	}
+
+	b := m.activeBattery()
+
+	// The figure is the charge with its unit, and the caption names what the
+	// figure is, the same as the CPU panel's "44°C" over "temp".
+	return m.panelBody(innerW, innerH, mt, "charge", func(w int) []string {
+		var rows []string
+		add := func(name, value string) {
+			if value != "" {
+				rows = append(rows, m.inlineRow(w, name, value))
+			}
+		}
+
+		add("state", batteryStateText(b))
+		// Only the estimate that applies is shown, and only when there is one.
+		// A full pack on the charger has no time left, and printing a dash for it
+		// would read as an estimate the firmware failed to give.
+		if b.State == model.BatteryCharging && b.MinutesToFull >= 0 {
+			add("to full", humanMinutes(b.MinutesToFull))
+		}
+		if b.State == model.BatteryDischarging && b.MinutesLeft >= 0 {
+			add("time left", humanMinutes(b.MinutesLeft))
+		}
+		if b.Power == b.Power {
+			add("power", model.FormatValue(model.KindPower, b.Power))
+		}
+		if b.Voltage == b.Voltage {
+			add("voltage", model.FormatValue(model.KindVoltage, b.Voltage))
+		}
+		if b.HealthPercent == b.HealthPercent {
+			add("health", fmt.Sprintf("%.0f%%", b.HealthPercent))
+		}
+		if b.Cycles >= 0 {
+			add("cycles", itoaStr(b.Cycles))
+		}
+		return rows
+	})
+}
+
+// activeBattery picks the pack whose state the panel describes.
+//
+// With more than one pack the one that is moving charge is the interesting one:
+// a laptop with a main and a slice battery reports both, and the discharging one
+// is what the time-left figure belongs to.
+func (m *Model) activeBattery() model.Battery {
+	var first model.Battery
+	seen := false
+	for _, b := range m.Snapshot().Batteries {
+		if !b.Valid() {
+			continue
+		}
+		if !seen {
+			first, seen = b, true
+		}
+		if b.State == model.BatteryDischarging || b.State == model.BatteryCharging {
+			return b
+		}
+	}
+	return first
+}
+
+// batteryStateText describes what the pack is doing in the terms a user thinks
+// in: is it plugged in, and is the power going in or out.
+func batteryStateText(b model.Battery) string {
+	switch b.State {
+	case model.BatteryCharging:
+		return "charging"
+	case model.BatteryDischarging:
+		return "discharging"
+	case model.BatteryFull:
+		if b.ACOnline {
+			return "full, on AC"
+		}
+		return "full"
+	case model.BatteryIdle:
+		if b.ACOnline {
+			return "on AC, idle"
+		}
+		return "not charging"
+	default:
+		if b.ACOnline {
+			return "on AC"
+		}
+		return "unknown"
+	}
+}
+
+// humanMinutes renders an estimate in minutes, or a dash when the firmware
+// gives nothing to estimate from. The dash matters: a pack that has not
+// reported an estimate is not a pack with no time left.
+func humanMinutes(min int) string {
+	switch {
+	case min < 0:
+		return "-"
+	case min < 1:
+		// Under a minute is still time left, and "0m" reads as none.
+		return "<1m"
+	case min < 60:
+		return fmt.Sprintf("%dm", min)
+	default:
+		// Rounded down to the minute: a countdown that ticks in tens of seconds
+		// is noise on a figure that is itself an estimate.
+		return fmt.Sprintf("%dh%02dm", min/60, min%60)
+	}
+}
 
 func humanDuration(d time.Duration) string {
 	if d < time.Minute {

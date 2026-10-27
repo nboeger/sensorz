@@ -1,15 +1,18 @@
 # sensorz
 
-A terminal monitor for the two things that actually make a machine uncomfortable:
-how hot it is, and whether its fans are still spinning.
+A terminal monitor for the things that actually make a machine uncomfortable:
+how hot it is, whether its fans are still spinning, and — on a laptop — how much
+charge is left before it stops.
 
 ![sensorz](screenshots/main-screen.png)
 
 sensorz shows temperatures and fan speeds, and nothing else. There is no CPU
 utilisation graph, no memory bar, no network throughput: every reading on screen
-is one you can act on — run something cooler, open the case, clean a filter.
+is one you can act on — run something cooler, open the case, clean a filter, plug
+the laptop in.
 
-Four boxes, one per class of sensor, each with one number and one graph:
+One box per class of sensor, each with one number and one graph. The battery box
+appears only on a machine that has a battery:
 
 | Box | Reading |
 | --- | --- |
@@ -17,10 +20,11 @@ Four boxes, one per class of sensor, each with one number and one graph:
 | **GPU** | the mean of the readable cards' temperatures, with a line per card underneath |
 | **Fans** | the mean RPM across every fan the machine reports |
 | **Drives** | the mean of every drive that reports a temperature, with a line per drive |
+| **Battery** | the pack's charge, with its state, time left, draw, voltage and wear underneath — **only on a machine with a battery** |
 | **Board** | the motherboard sensors that belong to no other box: the Super-I/O thermistors, the chipset, the CPU as the board's PECI controller reads it |
 
 One graph per box, down the left. A machine with sixteen cores, four GPUs and
-eleven case fans still shows four numbers, not thirty-one.
+eleven case fans still shows a handful of numbers, not thirty-one.
 
 ## Requirements
 
@@ -37,6 +41,17 @@ ls /sys/class/hwmon
 cat /sys/class/hwmon/hwmon*/name
 ```
 
+**A battery, for the battery box.** Charge and health come from
+`/sys/class/power_supply`, the same files the desktop's status menu reads, so the
+numbers agree with the rest of the system. A machine with no battery — a desktop,
+a server, most VMs — simply has no battery box.
+
+```sh
+# is this a laptop, and which pack?
+ls /sys/class/power_supply
+cat /sys/class/power_supply/BAT0/capacity
+```
+
 **Kernel drivers that supply the readings.** These are almost always loaded
 already; if a box is missing its sensors, this is the first place to look.
 
@@ -50,6 +65,7 @@ already; if a box is missing its sensors, this is the first place to look.
 | AMD GPU temperatures | `amdgpu` |
 | Intel GPU temperatures | `i915`, `xe` |
 | Wi-Fi card temperature | `iwlwifi` |
+| Battery charge, health, time left | `battery`, `ac`, `axp20x_battery` (any `power_supply` driver) |
 | NVIDIA GPU temperatures | the proprietary driver's NVML library, or `nouveau` |
 
 **A C compiler, for cgo.** The NVML bindings are cgo, so the build needs `gcc`
@@ -200,7 +216,7 @@ Building locally:
 
 ```sh
 snapcraft --destructive-mode
-sudo snap install --dangerous sensorz_1.45_amd64.snap
+sudo snap install --dangerous sensorz_1.46_amd64.snap
 ```
 
 The snap uses strict confinement. It reads the kernel's hardware monitoring data
@@ -208,6 +224,15 @@ through the `hardware-observe` and `system-observe` interface plugs, which grant
 read access to `/sys` and `/proc/stat`. It makes no network connections and
 writes nothing. NVIDIA GPU readings load the host's `libnvidia-ml.so.1` and
 match `nvidia-smi` under strict confinement.
+
+Those two plugs are not auto-connected until the Snap Store grants the
+auto-connection request, so a fresh install opens with every panel empty and
+sensorz exits with an explanation. Connect them once by hand:
+
+```sh
+sudo snap connect sensorz:hardware-observe
+sudo snap connect sensorz:system-observe
+```
 
 
 

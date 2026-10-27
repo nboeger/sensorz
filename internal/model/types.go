@@ -60,7 +60,8 @@ const (
 	CategoryMemory  Category = "memory"
 	CategoryDisk    Category = "disk"
 	CategoryNetwork Category = "network"
-	CategorySensor  Category = "sensor" // motherboard / fans / voltages
+	CategorySensor  Category = "sensor"  // motherboard / fans / voltages
+	CategoryBattery Category = "battery" // charge, draw and health of a pack
 	CategoryProcess Category = "process"
 )
 
@@ -92,6 +93,11 @@ type Metric struct {
 	// Hint is a short note shown under the figure: for an average, how many
 	// sensors went into it.
 	Hint string
+	// LowIsBad flips the direction of the thresholds. Temperatures are dangerous
+	// when they climb, so Warn and Crit are upper bounds; a battery is dangerous
+	// when it empties, so for that metric they are lower bounds and a reading
+	// below Crit is the red one.
+	LowIsBad bool
 }
 
 // Valid reports whether the metric carries a usable reading. Sensors such as
@@ -115,6 +121,15 @@ type Device struct {
 	ExtraTemps []ExtraTemp
 	// Err records why this device could not be refreshed this tick.
 	Err string
+	// Sensorless marks a card that is present but whose driver exposes no
+	// telemetry at all.
+	//
+	// It is a fact about the hardware, not a failure: many integrated GPUs
+	// have no thermal diode of their own, and their heat shows up in the CPU
+	// package sensor on the same die. The card is still worth listing, but it
+	// is not worth a warning, so the UI leaves it out of the panel and the
+	// diagnostic line.
+	Sensorless bool
 }
 
 // ExtraTemp is an auxiliary temperature reading on an accelerator.
@@ -136,14 +151,72 @@ func (d Device) HasTemperature() bool {
 	return t == t && t > -50 && t < 200
 }
 
+// BatteryState is what a battery is doing right now, in the kernel's words
+// collapsed onto the handful of states a user acts on.
+type BatteryState string
+
+const (
+	BatteryCharging    BatteryState = "charging"
+	BatteryDischarging BatteryState = "discharging"
+	BatteryFull        BatteryState = "full"
+	BatteryIdle        BatteryState = "not charging"
+	BatteryUnknown     BatteryState = "unknown"
+)
+
+// Battery is one pack: its charge, what it is doing, and how much of its
+// design capacity is left.
+//
+// A laptop has one of these and reports it through /sys/class/power_supply.
+// The numbers are the ones the desktop shows, so the dashboard agrees with the
+// status menu rather than with a second opinion.
+type Battery struct {
+	Index int
+	// Name is the pack's model name, or its sysfs directory when the firmware
+	// reports none.
+	Name string
+	// Path is the sysfs device name, e.g. BAT0.
+	Path string
+	// Present is false for a bay that is empty or a pack that has been pulled.
+	Present bool
+	// Percent is the charge, 0-100.
+	Percent float64
+	State   BatteryState
+	// ACOnline reports whether mains power is connected, which is what tells
+	// "full" apart from "charging and nearly there".
+	ACOnline bool
+	// Power is the current flow in watts, positive in both directions: a
+	// charging pack and a discharging one both report a magnitude.
+	Power float64
+	// Voltage is the pack voltage in volts.
+	Voltage float64
+	// MinutesLeft is the discharge time estimate, or -1 when the pack is not
+	// discharging or the firmware gives nothing to compute it from.
+	MinutesLeft int
+	// MinutesToFull is the charge time estimate, or -1 when it is not charging.
+	MinutesToFull int
+	// HealthPercent is the full-charge capacity as a percentage of design
+	// capacity, or NaN when the firmware reports neither.
+	HealthPercent float64
+	// Cycles is the battery's cycle count, or -1 when it is not reported.
+	Cycles int
+}
+
+// Valid reports whether the pack is one worth drawing a panel for.
+func (b Battery) Valid() bool {
+	return b.Present && b.Percent == b.Percent && b.Percent >= 0 && b.Percent <= 100
+}
+
 // Snapshot is the complete result of one collection pass.
 type Snapshot struct {
 	Time time.Time
 	// Cores is the number of logical CPUs, used to label the CPU average.
-	Cores    int
-	Metrics  []Metric
-	Devices  []Device
-	Warnings []string
+	Cores   int
+	Metrics []Metric
+	Devices []Device
+	// Batteries is empty on a machine with no battery, which is what makes the
+	// battery panel disappear rather than sit there showing nothing.
+	Batteries []Battery
+	Warnings  []string
 }
 
 // MetricsByCategory returns the metrics belonging to a category, preserving

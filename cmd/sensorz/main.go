@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -40,7 +41,7 @@ func run() error {
 		showAll     = flag.Bool("all-sensors", false, "show every hwmon channel, not just the important ones")
 		listSensors = flag.Bool("list-sensors", false, "print the detected sensors and exit")
 		showVersion = flag.Bool("version", false, "print the version and exit")
-		showV      = flag.Bool("v", false, "print the version and exit (shorthand)")
+		showV       = flag.Bool("v", false, "print the version and exit (shorthand)")
 		theme       = flag.String("theme", "default", "color theme (default, dracula, nord, solarized-dark, solarized-light)")
 	)
 	flag.Parse()
@@ -55,6 +56,13 @@ func run() error {
 		if len(f) > 0 && f[0] == '-' {
 			return fmt.Errorf("unknown flag %q (run sensorz -h)", f)
 		}
+	}
+
+	// Fail fast when every sensor source is permission-denied, which is the
+	// signature of the strictly confined snap with unconnected interfaces.
+	// Better to print the fix than to open a dashboard of empty boxes.
+	if rep := collect.ProbeAccess(*procPath); rep.AllDenied() {
+		return errors.New(rep.Guidance())
 	}
 
 	agg, err := collect.New(collect.Options{
@@ -113,6 +121,17 @@ func listSensorsOnce(agg *collect.Aggregator) error {
 		}
 	}
 
+	for _, b := range s.Batteries {
+		extra := ""
+		if b.MinutesLeft >= 0 {
+			extra = fmt.Sprintf(" %dm left", b.MinutesLeft)
+		}
+		if b.MinutesToFull >= 0 {
+			extra = fmt.Sprintf(" %dm to full", b.MinutesToFull)
+		}
+		fmt.Printf("bat%d  %-28s %-12s %3.0f%%%s\n", b.Index, b.Path, b.State, b.Percent, extra)
+	}
+
 	var counts = map[string]int{}
 	for _, mt := range s.Metrics {
 		counts[string(mt.Category)]++
@@ -122,7 +141,7 @@ func listSensorsOnce(agg *collect.Aggregator) error {
 		fmt.Printf("%-34s %-10s %-18s %s\n", mt.ID, mt.Category, mt.Group, mt.Label)
 	}
 	fmt.Println()
-	for _, cat := range []string{"cpu", "gpu", "disk", "sensor"} {
+	for _, cat := range []string{"cpu", "gpu", "disk", "sensor", "battery"} {
 		if counts[cat] == 0 {
 			continue
 		}

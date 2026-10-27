@@ -37,6 +37,7 @@ const (
 	FocusGPU
 	FocusFans
 	FocusDrives
+	FocusBattery
 	FocusBoard
 )
 
@@ -50,6 +51,8 @@ func (f Focus) String() string {
 		return "fans"
 	case FocusDrives:
 		return "drives"
+	case FocusBattery:
+		return "battery"
 	case FocusBoard:
 		return "board"
 	default:
@@ -257,6 +260,9 @@ func (m *Model) visibleFocus() []Focus {
 		if m.hasDrives() {
 			out = append(out, FocusDrives)
 		}
+	}
+	if m.hasBattery() {
+		out = append(out, FocusBattery)
 	}
 	if m.hasBoard() {
 		out = append(out, FocusBoard)

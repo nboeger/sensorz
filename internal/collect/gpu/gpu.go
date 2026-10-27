@@ -15,7 +15,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -113,12 +112,29 @@ func (c *Collector) Collect(ctx context.Context) ([]model.Device, error) {
 			out = append(out, d)
 		}
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Index < out[j].Index })
+	renumber(out)
 
 	// Whatever was read is returned even when a backend failed: one card that
 	// will not report a temperature must not hide the two that will. The error
 	// rides along so the caller can say which backend is unhappy.
 	return out, errors.Join(warns...)
+}
+
+// renumber gives each card the index of its position in the list.
+//
+// The backends each number their own discoveries from zero, so leaving their
+// indices alone is wrong as soon as two of them report a card: an NVIDIA GPU
+// from NVML and an integrated one from the PCI fallback both come back as GPU0,
+// which prints the same name twice and, worse, builds two series with the same
+// history key. Numbering after the merge keeps the indices unique.
+//
+// Backend order is preserved rather than sorted: NVML runs first, so an NVIDIA
+// card keeps the index nvidia-smi gives it, and the identity-only fallbacks come
+// last. Sorting by the backends' own indices would instead interleave them.
+func renumber(devs []model.Device) {
+	for i := range devs {
+		devs[i].Index = i
+	}
 }
 
 // Metrics turns devices into the graphable temperature series the UI renders.
