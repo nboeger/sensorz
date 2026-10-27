@@ -7,3 +7,7 @@ screen0*.png
 # build output
 /sensorz
 cmd/sensorz/sensorz
+
+# Claude Code's per-machine settings and scratch files, which are local to
+# whoever is working on the tree and not part of the project.
+.claude/
